@@ -11,7 +11,9 @@ class UnsupportedFileTypeError(ValueError):
     pass
 
 
-def ingest_file(source_path: str | Path, uploads_dir: Path = DEFAULT_UPLOADS_DIR) -> Path:
+def ingest_file(
+    source_path: str | Path, uploads_dir: Path = DEFAULT_UPLOADS_DIR
+) -> Path:
     source_path = Path(source_path)
 
     if source_path.suffix.lower() not in SUPPORTED_SUFFIXES:
