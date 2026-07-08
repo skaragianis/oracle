@@ -1,6 +1,12 @@
 import argparse
+import mimetypes
+import sqlite3
+import sys
+from pathlib import Path
 
-from oracle.common.ingest import ingest_file
+from oracle.common import db, ingest
+from oracle.common.documents import create_document
+from oracle.common.ingest import UnsupportedFileTypeError
 
 
 def main() -> None:
@@ -13,12 +19,43 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.add:
-        destination_path = ingest_file(args.add)
-        print(f"Added {args.add} -> {destination_path}")
-        return
+    conn = _startup()
+    try:
+        if args.add:
+            _add(conn, args.add)
+            return
+        parser.print_usage()
+    except FileNotFoundError as exc:
+        print(f"Error: file not found: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    except UnsupportedFileTypeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    finally:
+        conn.close()
 
-    parser.print_usage()
+
+def _startup() -> sqlite3.Connection:
+    conn = db.get_connection(db.DEFAULT_DB_PATH)
+    db.apply_migrations(conn, db.MIGRATIONS_DIR)
+    return conn
+
+
+def _add(conn: sqlite3.Connection, file_path: str) -> None:
+    source_path = Path(file_path)
+    destination_path = ingest.ingest_file(
+        source_path, uploads_dir=ingest.DEFAULT_UPLOADS_DIR
+    )
+    mime_type, _ = mimetypes.guess_type(source_path.name)
+
+    create_document(
+        conn,
+        filename=source_path.name,
+        stored_filename=destination_path.name,
+        mime_type=mime_type,
+        size_bytes=destination_path.stat().st_size,
+    )
+    print(f"Added {file_path} -> {destination_path}")
 
 
 if __name__ == "__main__":

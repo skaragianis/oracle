@@ -64,6 +64,24 @@ def test_get_connection_creates_parent_dir(tmp_path):
     assert db_path.parent.exists()
 
 
+def test_project_migrations_create_documents_table(tmp_path):
+    conn = sqlite3.connect(tmp_path / "test.db")
+
+    apply_migrations(conn)
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
+    assert columns == {
+        "id",
+        "filename",
+        "stored_filename",
+        "mime_type",
+        "size_bytes",
+        "status",
+        "error",
+        "created_at",
+    }
+
+
 def test_run_migrations_applies_and_persists(tmp_path):
     migrations_dir = tmp_path / "migrations"
     migrations_dir.mkdir()
