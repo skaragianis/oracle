@@ -1,0 +1,7 @@
+[project]
+name = "oracle"
+version = "0.1.0"
+description = "Use LLM's to ask questions of provided documents"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
