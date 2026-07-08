@@ -19,6 +19,9 @@ htmlcov/
 build/
 dist/
 
+# Runtime data
+backend/data/
+
 # Editors
 .vscode/
 .idea/
