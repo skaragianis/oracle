@@ -25,3 +25,5 @@ backend/data/
 # Editors
 .vscode/
 .idea/
+
+.DS_Store
