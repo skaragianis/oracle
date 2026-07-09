@@ -64,6 +64,30 @@ def test_get_connection_creates_parent_dir(tmp_path):
     assert db_path.parent.exists()
 
 
+def test_get_connection_enables_foreign_keys(tmp_path):
+    conn = get_connection(tmp_path / "test.db")
+
+    assert conn.execute("PRAGMA foreign_keys").fetchone() == (1,)
+
+
+def test_chunks_cascade_delete_on_document_removal(tmp_path):
+    conn = get_connection(tmp_path / "test.db")
+    apply_migrations(conn)
+
+    conn.execute(
+        "INSERT INTO documents (id, filename, stored_filename, mime_type, size_bytes)"
+        " VALUES (1, 'a.txt', 'uuid-a', 'text/plain', 10)"
+    )
+    conn.execute(
+        "INSERT INTO chunks (doc_id, seq, text) VALUES (1, 0, 'hello')"
+    )
+
+    conn.execute("DELETE FROM documents WHERE id = 1")
+
+    remaining = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+    assert remaining == 0
+
+
 def test_project_migrations_create_documents_table(tmp_path):
     conn = sqlite3.connect(tmp_path / "test.db")
 
@@ -80,6 +104,30 @@ def test_project_migrations_create_documents_table(tmp_path):
         "error",
         "created_at",
     }
+
+
+def test_project_migrations_create_chunks_table(tmp_path):
+    conn = sqlite3.connect(tmp_path / "test.db")
+
+    apply_migrations(conn)
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(chunks)")}
+    assert columns == {
+        "id",
+        "doc_id",
+        "seq",
+        "text",
+        "page_number",
+        "paragraph_start",
+        "paragraph_end",
+        "char_start",
+        "char_end",
+    }
+
+    index = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='chunks'"
+    ).fetchone()
+    assert index is not None
 
 
 def test_run_migrations_applies_and_persists(tmp_path):
