@@ -54,7 +54,7 @@ def ingest_file(
         conn,
         filename=source_path.name,
         stored_filename=destination_path.name,
-        mime_type=mime_type,
+        mime_type=mime_type or "application/octet-stream",
         size_bytes=destination_path.stat().st_size,
     )
 

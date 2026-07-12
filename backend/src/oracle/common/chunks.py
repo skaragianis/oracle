@@ -29,4 +29,5 @@ def create_chunk(
                 char_end,
             ),
         )
+    assert cursor.lastrowid is not None
     return cursor.lastrowid

@@ -17,6 +17,8 @@ All commands run from `backend/`, using `uv` (never call `pip`/`python -m venv` 
 
 ```bash
 uv sync                  # install/update deps into .venv, per uv.lock
+uv run ty check          # run type checker
+uv run ruff check        # run linter
 uv run pytest            # run the full test suite
 uv run pytest tests/test_server_app.py::test_health   # run a single test
 uv run oracle-cli        # run the CLI app
@@ -25,6 +27,8 @@ uv run uvicorn oracle.server.app:app --reload   # run the server with autoreload
 uv add <package>         # add a runtime dependency
 uv add --dev <package>   # add a dev-only dependency
 ```
+
+Start work by confirming all tests pass first. Never finish work until all tests pass, the type checker shows no feedback, and the linter shows no feedback.
 
 ## Architecture
 

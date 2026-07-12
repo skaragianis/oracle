@@ -15,4 +15,5 @@ def create_document(
             "VALUES (?, ?, ?, ?)",
             (filename, stored_filename, mime_type, size_bytes),
         )
+    assert cursor.lastrowid is not None
     return cursor.lastrowid
