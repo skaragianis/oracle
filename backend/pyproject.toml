@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.139.0",
+    "pymupdf>=1.28.0",
+    "tiktoken>=0.13.0",
     "uvicorn[standard]>=0.50.2",
 ]
 

@@ -1,11 +1,9 @@
 import argparse
-import mimetypes
 import sqlite3
 import sys
 from pathlib import Path
 
 from oracle.common import db, ingest
-from oracle.common.documents import create_document
 from oracle.common.ingest import UnsupportedFileTypeError
 
 
@@ -43,19 +41,8 @@ def _startup() -> sqlite3.Connection:
 
 def _add(conn: sqlite3.Connection, file_path: str) -> None:
     source_path = Path(file_path)
-    destination_path = ingest.ingest_file(
-        source_path, uploads_dir=ingest.DEFAULT_UPLOADS_DIR
-    )
-    mime_type, _ = mimetypes.guess_type(source_path.name)
-
-    create_document(
-        conn,
-        filename=source_path.name,
-        stored_filename=destination_path.name,
-        mime_type=mime_type,
-        size_bytes=destination_path.stat().st_size,
-    )
-    print(f"Added {file_path} -> {destination_path}")
+    result = ingest.ingest_file(conn, source_path, uploads_dir=ingest.DEFAULT_UPLOADS_DIR)
+    print(f"Added {file_path} -> {result.destination_path}")
 
 
 if __name__ == "__main__":

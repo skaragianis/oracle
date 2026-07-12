@@ -1,6 +1,7 @@
 import sqlite3
 import sys
 
+import fitz
 import pytest
 
 from oracle.cli.main import main
@@ -31,7 +32,10 @@ def test_main_runs_migrations_on_startup_even_with_no_command(tmp_path, monkeypa
 
 def test_main_add_ingests_file_and_records_document(tmp_path, capsys, monkeypatch):
     source = tmp_path / "report.pdf"
-    source.write_bytes(b"file contents")
+    pdf_doc = fitz.open()
+    pdf_doc.new_page().insert_text((72, 72), "Hello world.")
+    pdf_doc.save(source)
+    pdf_doc.close()
     uploads_dir = tmp_path / "uploads"
     db_path = tmp_path / "oracle.db"
     monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
@@ -44,7 +48,7 @@ def test_main_add_ingests_file_and_records_document(tmp_path, capsys, monkeypatc
     assert "Added" in captured.out
     stored_files = list(uploads_dir.iterdir())
     assert len(stored_files) == 1
-    assert stored_files[0].read_bytes() == b"file contents"
+    assert stored_files[0].read_bytes() == source.read_bytes()
 
     conn = sqlite3.connect(db_path)
     row = conn.execute(
@@ -55,9 +59,14 @@ def test_main_add_ingests_file_and_records_document(tmp_path, capsys, monkeypatc
         "report.pdf",
         stored_files[0].name,
         "application/pdf",
-        len(b"file contents"),
+        source.stat().st_size,
         "pending",
     )
+
+    chunk_row = conn.execute(
+        "SELECT text FROM chunks WHERE doc_id = (SELECT id FROM documents)"
+    ).fetchone()
+    assert chunk_row == ("Hello world.\n",)
 
 
 def test_main_add_missing_file_prints_friendly_error(tmp_path, capsys, monkeypatch):
