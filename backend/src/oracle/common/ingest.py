@@ -153,3 +153,8 @@ def chunk_pdf(
 
     flush()
     return seq
+
+
+def remove_document_uploads():
+    for item in DEFAULT_UPLOADS_DIR.iterdir():
+        item.unlink()

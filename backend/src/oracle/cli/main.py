@@ -10,10 +10,9 @@ from oracle.common.ingest import UnsupportedFileTypeError
 def main() -> None:
     parser = argparse.ArgumentParser(prog="oracle-cli")
     parser.add_argument(
-        "--init",
-        "-i",
+        "--reset",
         action="store_true",
-        help="Delete the database if it exists, then recreate it and run migrations",
+        help="Reset all documents and uploads",
     )
     parser.add_argument(
         "--add",
@@ -23,8 +22,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.init:
-        _init()
+    if args.reset:
+        _reset()
         return
 
     try:
@@ -49,14 +48,14 @@ def _startup() -> sqlite3.Connection:
     return conn
 
 
-def _init() -> None:
+def _reset() -> None:
     if db.DEFAULT_DB_PATH.exists():
         db.DEFAULT_DB_PATH.unlink()
-    try:
-        conn = _startup()
-    finally:
-        conn.close()
-    print(f"Initialized database at {db.DEFAULT_DB_PATH}")
+    if ingest.DEFAULT_UPLOADS_DIR.exists():
+        ingest.remove_document_uploads()
+    print(
+        f"Reset database at {db.DEFAULT_DB_PATH} and removed documents at {ingest.DEFAULT_UPLOADS_DIR}"
+    )
 
 
 def _add(conn: sqlite3.Connection, file_path: str) -> None:
