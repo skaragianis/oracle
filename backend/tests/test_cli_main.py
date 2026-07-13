@@ -84,6 +84,43 @@ def test_main_add_missing_file_prints_friendly_error(tmp_path, capsys, monkeypat
     assert str(missing) in captured.err
 
 
+def test_main_init_creates_database_and_runs_migrations(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--init"])
+
+    main()
+
+    captured = capsys.readouterr()
+    assert "Initialized database" in captured.out
+    conn = sqlite3.connect(db_path)
+    table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='documents'"
+    ).fetchone()
+    assert table is not None
+
+
+def test_main_init_deletes_existing_database(tmp_path, monkeypatch):
+    db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli"])
+    main()
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes)"
+        " VALUES ('a.txt', 'uuid-a', 'text/plain', 10)"
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "-i"])
+    main()
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT * FROM documents").fetchall()
+    assert rows == []
+
+
 def test_main_add_unsupported_extension_prints_friendly_error(
     tmp_path, capsys, monkeypatch
 ):
