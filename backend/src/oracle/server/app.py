@@ -1,3 +1,4 @@
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -7,10 +8,23 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from oracle.common import db, documents, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
+
+
+def allowed_origins() -> list[str]:
+    """Browser origins permitted to call the API cross-origin.
+
+    Empty by default, because the SPA is normally served on the same origin as
+    the API (the Vite dev proxy, or a reverse proxy in production) and so needs
+    no CORS at all. Set ORACLE_ALLOWED_ORIGINS to a comma-separated list only
+    when the SPA really is served from somewhere else.
+    """
+    configured = os.environ.get("ORACLE_ALLOWED_ORIGINS", "")
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
 
 
 @asynccontextmanager
@@ -20,6 +34,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+if origins := allowed_origins():
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 def get_connection() -> Iterator[sqlite3.Connection]:
@@ -62,6 +84,7 @@ class SearchResultResponse(BaseModel):
     chunk_id: int
     seq: int
     text: str
+    page_number: int | None
 
 
 class SearchResponse(BaseModel):
@@ -120,6 +143,7 @@ def search_documents(conn: Connection, request: SearchRequest) -> SearchResponse
                 chunk_id=result.chunk_id,
                 seq=result.seq,
                 text=result.text,
+                page_number=result.page_number,
             )
             for result in results
         ]

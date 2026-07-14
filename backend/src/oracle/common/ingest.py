@@ -12,6 +12,7 @@ from oracle.common.chunks import create_chunk, delete_chunks_for_document
 from oracle.common.documents import (
     create_document,
     find_document_by_filename,
+    mark_document_ready,
     replace_document_upload,
 )
 
@@ -78,8 +79,11 @@ def ingest_file(
             size_bytes=destination_path.stat().st_size,
         )
 
+    # Only PDFs are chunked so far; anything else is stored but stays 'pending'
+    # because it has no chunks and so cannot be searched yet.
     if destination_path.suffix.lower() == ".pdf":
         chunk_pdf(conn, doc_id, destination_path)
+        mark_document_ready(conn, doc_id)
 
     return IngestResult(
         doc_id=doc_id, destination_path=destination_path, replaced=existing is not None

@@ -32,7 +32,9 @@ def test_search_chunks_finds_matching_chunk_with_document(conn):
         mime_type="application/pdf",
         size_bytes=10,
     )
-    chunk_id = create_chunk(conn, doc_id=doc_id, seq=0, text="the quick brown fox")
+    chunk_id = create_chunk(
+        conn, doc_id=doc_id, seq=0, text="the quick brown fox", page_number=3
+    )
 
     results = search_chunks(conn, "quick")
 
@@ -43,6 +45,7 @@ def test_search_chunks_finds_matching_chunk_with_document(conn):
             chunk_id=chunk_id,
             seq=0,
             text="the quick brown fox",
+            page_number=3,
         )
     ]
 

@@ -1,0 +1,12 @@
+/* Minimal base; the PrimeVue Aura preset owns the rest of the look. */
+:root {
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  color: var(--p-text-color);
+  background: var(--p-content-background);
+}

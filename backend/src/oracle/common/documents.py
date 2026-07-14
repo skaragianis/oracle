@@ -43,6 +43,15 @@ def find_document_by_filename(
     ).fetchone()
 
 
+def mark_document_ready(conn: sqlite3.Connection, document_id: int) -> None:
+    """Mark a document as chunked and therefore searchable."""
+    with conn:
+        conn.execute(
+            "UPDATE documents SET status = 'ready', error = NULL WHERE id = ?",
+            (document_id,),
+        )
+
+
 def replace_document_upload(
     conn: sqlite3.Connection,
     document_id: int,

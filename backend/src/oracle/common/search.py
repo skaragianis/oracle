@@ -47,6 +47,7 @@ class SearchResult:
     chunk_id: int
     seq: int
     text: str
+    page_number: int | None
 
 
 def build_fts_query(user_input: str) -> str | None:
@@ -70,7 +71,8 @@ def search_chunks(conn: sqlite3.Connection, query: str) -> list[SearchResult]:
         return []
 
     rows = conn.execute(
-        "SELECT documents.id, documents.filename, chunks.id, chunks.seq, chunks.text "
+        "SELECT documents.id, documents.filename, chunks.id, chunks.seq, chunks.text, "
+        "chunks.page_number "
         "FROM chunks_fts "
         "JOIN chunks ON chunks.id = chunks_fts.rowid "
         "JOIN documents ON documents.id = chunks.doc_id "
@@ -80,7 +82,12 @@ def search_chunks(conn: sqlite3.Connection, query: str) -> list[SearchResult]:
     ).fetchall()
     return [
         SearchResult(
-            doc_id=row[0], filename=row[1], chunk_id=row[2], seq=row[3], text=row[4]
+            doc_id=row[0],
+            filename=row[1],
+            chunk_id=row[2],
+            seq=row[3],
+            text=row[4],
+            page_number=row[5],
         )
         for row in rows
     ]

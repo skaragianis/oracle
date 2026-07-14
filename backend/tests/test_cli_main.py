@@ -60,7 +60,7 @@ def test_main_add_ingests_file_and_records_document(tmp_path, capsys, monkeypatc
         stored_files[0].name,
         "application/pdf",
         source.stat().st_size,
-        "pending",
+        "ready",
     )
 
     chunk_row = conn.execute(
@@ -173,7 +173,7 @@ def test_main_list_prints_documents_with_emphasised_id(tmp_path, capsys, monkeyp
     main()
 
     captured = capsys.readouterr()
-    assert "[1] report.pdf - pending" in captured.out
+    assert "[1] report.pdf - ready" in captured.out
 
 
 def test_main_search_prints_no_results_message_when_no_matches(

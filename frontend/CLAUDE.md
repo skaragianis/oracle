@@ -1,0 +1,58 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Oracle: use LLMs to ask questions of provided documents. This `frontend/` directory is one of two apps in the `oracle` monorepo (the other is `backend/`, a sibling directory outside this one — its Python conventions do not apply here, and vice versa).
+
+A Vue 3 SPA (TypeScript, Vite, PrimeVue) over the backend's HTTP API: upload documents, pick which ones to search, run a full-text search, read the matching chunks.
+
+## Commands
+
+All commands run from `frontend/`, using `pnpm` (never `npm`/`yarn` — the lockfile is `pnpm-lock.yaml`).
+
+```bash
+pnpm install             # install deps per pnpm-lock.yaml
+pnpm dev                 # Vite dev server on 127.0.0.1:5173
+pnpm dev --host          # also serve on the LAN (see "Reaching the API" below)
+pnpm test                # run the full Vitest suite
+pnpm test tests/api.test.ts      # run a single test file (no `--`; that runs everything)
+pnpm typecheck           # vue-tsc --noEmit — the real typechecker
+pnpm build               # vue-tsc -b && vite build
+pnpm add <package>       # add a runtime dependency
+pnpm add -D <package>    # add a dev-only dependency
+```
+
+The backend must be running for the app to do anything: `cd ../backend && uv run oracle-server`.
+
+Start work by confirming all tests pass first. Never finish work until `pnpm test` and `pnpm typecheck` both pass. **`vite build` is not a typecheck** — Vite strips types without checking them, so a build can succeed while the code is badly broken. `pnpm typecheck` is the authority.
+
+## Architecture
+
+- `src/api.ts` is the only place that talks to the backend. Every call goes through the internal `request()` helper, which unwraps FastAPI's `{"detail": ...}` error bodies and throws `ApiError`. Components catch `ApiError` and render the message; they never call `fetch` directly. Add new endpoints here, with a typed interface mirroring the server's Pydantic response model.
+- `src/App.vue` owns the state (document list, selection, loading, error) and passes it down. The three components under `src/components/` are presentational and talk to the API only for their own action (`DocumentUpload` uploads, `SearchPanel` searches); the document list is fetched once in `App.vue` and refreshed via the `uploaded` event.
+- PrimeVue 4 with the Aura preset, configured in `src/main.ts`. Components are imported individually where used (`import DataTable from 'primevue/datatable'`), not registered globally. Let the theme own the look: `src/style.css` is deliberately minimal, and colours come from PrimeVue CSS variables (`--p-text-muted-color`, `--p-content-background`) rather than hard-coded values.
+- Tests live in top-level `tests/`, not alongside source, mirroring the backend's convention. `include: ['tests/**/*.test.ts']` is set in `vite.config.ts`. Component tests mount with the PrimeVue plugin installed and assert against rendered PrimeVue markup (`.p-card`, `.p-tag`, `input.p-checkbox-input`).
+- `tsconfig.app.json` includes `tests/**/*.ts` as well as `src/`, so test files are typechecked too. Keep it that way.
+
+## Reaching the API
+
+The SPA calls **relative** `/api/*` URLs, so the API is always same-origin with the page. In dev, `vite.config.ts` proxies `/api` to `http://127.0.0.1:8000` and strips the prefix (the backend serves its routes at the root: `/documents`, not `/api/documents`).
+
+This is deliberate and worth preserving:
+
+- It works unchanged when the page is loaded from another machine (`pnpm dev --host`), because no backend host is baked into the bundle. The proxy hop happens on the machine running Vite, so its `127.0.0.1` is correct even when the browser is elsewhere.
+- Same-origin means **no CORS**. The backend only adds `CORSMiddleware` if `ORACLE_ALLOWED_ORIGINS` is set, and it normally isn't.
+- It mirrors the intended production setup (a reverse proxy serving `dist/` and forwarding `/api` to uvicorn), so dev and prod run the same code path.
+
+`VITE_API_BASE_URL` overrides the base with an absolute origin, but that is genuinely cross-origin and then needs `ORACLE_ALLOWED_ORIGINS` set on the backend to match. Prefer the proxy. Note Vite inlines `import.meta.env.VITE_*` **at build time** — a built bundle cannot be repointed at runtime.
+
+## Gotchas
+
+- **`typescript` is pinned to `~6.0.2`. Do not upgrade to 7.** TypeScript 7 is the native (Go) port: its npm package ships no JavaScript compiler API (the root export is just `lib/version.cjs`) and no `tsserver`. `vue-tsc` fails to start on it (`ERR_PACKAGE_PATH_NOT_EXPORTED` for `typescript/lib/tsc`), and the native `tsc` cannot read `.vue` files at all — it reports `TS2307: Cannot find module './App.vue'` for every SFC import. `vite build` and `vitest` still pass on TS 7, which makes this a *silent* loss of all Vue typechecking. Revisit only when `@vue/language-tools`/`vue-tsc` ships TS 7 support; its current `typescript: >=5.0.0` peer range permits 7 by semver but does not work.
+- **Never add a `declare module '*.vue'` shim.** It silences editor errors by making every component `any`, destroying prop/emit typechecking. Modern create-vue deliberately omits it; if `.vue` imports fail to resolve, the editor's Vue language server is misconfigured — the code is fine (`pnpm typecheck` will confirm).
+- **PrimeVue 4's `DataTable` has no `isDataSelectable` prop** (that's PrimeReact). Vue silently ignores unknown props, so a row-selectability rule written that way appears to work and does nothing. `DocumentTable.vue` enforces it instead by routing `v-model:selection` through a computed whose setter filters out unready rows — which also stops the header select-all from grabbing them. Check the real PrimeVue 4 API before reaching for a prop you remember.
+- **A document is only searchable once its status is `ready`.** The backend marks a document ready after chunking; PDFs get chunked, `.docx` files are stored but not yet chunked and stay `pending`. Unready rows are greyed out and cannot be selected. Don't treat `pending` as selectable.
+- **Selection filtering is client-side.** `POST /search` searches every document; `SearchPanel` narrows the results to the checked rows. An empty selection means "search everything", not "search nothing". If the corpus grows, push this into SQL rather than filtering more aggressively here.
+- Search results carry `page_number`, which is `null` for chunks with no page information — render the page only when it is present.

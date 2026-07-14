@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from oracle.common.db import apply_migrations
-from oracle.server.app import app, get_connection, get_uploads_dir
+from oracle.server.app import allowed_origins, app, get_connection, get_uploads_dir
 
 
 @pytest.fixture
@@ -48,6 +48,21 @@ def _upload(client, filename, paragraphs=("Hello world.",)):
     )
 
 
+def test_allowed_origins_is_empty_when_unset(monkeypatch):
+    # The SPA is same-origin with the API by default, so no CORS is configured.
+    monkeypatch.delenv("ORACLE_ALLOWED_ORIGINS", raising=False)
+
+    assert allowed_origins() == []
+
+
+def test_allowed_origins_parses_a_comma_separated_list(monkeypatch):
+    monkeypatch.setenv(
+        "ORACLE_ALLOWED_ORIGINS", "http://192.168.1.2:5173, http://localhost:5173"
+    )
+
+    assert allowed_origins() == ["http://192.168.1.2:5173", "http://localhost:5173"]
+
+
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200
@@ -65,7 +80,7 @@ def test_add_document_stores_document_and_chunks(client, conn, tmp_path):
     doc_row = conn.execute(
         "SELECT filename, status FROM documents WHERE id = ?", (body["id"],)
     ).fetchone()
-    assert doc_row == ("source.pdf", "pending")
+    assert doc_row == ("source.pdf", "ready")
 
     chunk_rows = conn.execute(
         "SELECT text FROM chunks WHERE doc_id = ?", (body["id"],)
@@ -99,6 +114,27 @@ def test_add_document_strips_path_from_client_supplied_filename(client, conn):
     assert response.json()["filename"] == "evil.pdf"
 
 
+def test_add_document_leaves_unchunked_document_pending(client, conn):
+    # A .docx is stored but not chunked yet, so it isn't searchable and must not
+    # be reported as ready.
+    response = client.post(
+        "/documents",
+        files={
+            "file": (
+                "notes.docx",
+                b"file contents",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (response.json()["id"],)
+    ).fetchone()[0]
+    assert status == "pending"
+
+
 def test_add_document_rejects_unsupported_file_type(client):
     response = client.post(
         "/documents",
@@ -129,8 +165,8 @@ def test_list_documents_returns_uploaded_documents(client):
 
     assert response.status_code == 200
     assert response.json() == [
-        {"id": first.json()["id"], "filename": "first.pdf", "status": "pending"},
-        {"id": second.json()["id"], "filename": "second.pdf", "status": "pending"},
+        {"id": first.json()["id"], "filename": "first.pdf", "status": "ready"},
+        {"id": second.json()["id"], "filename": "second.pdf", "status": "ready"},
     ]
 
 
@@ -145,6 +181,7 @@ def test_search_returns_matching_chunks(client):
     assert results[0]["doc_id"] == uploaded.json()["id"]
     assert results[0]["filename"] == "source.pdf"
     assert results[0]["seq"] == 0
+    assert results[0]["page_number"] == 1
     assert "quick brown fox" in results[0]["text"]
 
 
