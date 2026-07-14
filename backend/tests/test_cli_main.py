@@ -176,6 +176,39 @@ def test_main_list_prints_documents_with_emphasised_id(tmp_path, capsys, monkeyp
     assert "[1] report.pdf - pending" in captured.out
 
 
+def test_main_search_prints_no_results_message_when_no_matches(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--search", "nothing"])
+
+    main()
+
+    captured = capsys.readouterr()
+    assert "No results found." in captured.out
+
+
+def test_main_search_prints_matching_document_and_chunk(tmp_path, capsys, monkeypatch):
+    source = tmp_path / "report.pdf"
+    pdf_doc = fitz.open()
+    pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
+    pdf_doc.save(source)
+    pdf_doc.close()
+    uploads_dir = tmp_path / "uploads"
+    db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--add", str(source)])
+    main()
+
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "-s", "quick"])
+    main()
+
+    captured = capsys.readouterr()
+    assert "[1] report.pdf (chunk 0)" in captured.out
+    assert "The quick brown fox." in captured.out
+
+
 def test_main_add_unsupported_extension_prints_friendly_error(
     tmp_path, capsys, monkeypatch
 ):

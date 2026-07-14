@@ -3,7 +3,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from oracle.common import db, documents, ingest
+from oracle.common import db, documents, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
 
 
@@ -26,6 +26,12 @@ def main() -> None:
         action="store_true",
         help="List processed documents and their status",
     )
+    parser.add_argument(
+        "--search",
+        "-s",
+        metavar="QUERY",
+        help="Search document chunks with full-text search",
+    )
     args = parser.parse_args()
 
     if args.reset:
@@ -39,6 +45,9 @@ def main() -> None:
             return
         if args.list:
             _list(conn)
+            return
+        if args.search:
+            _search(conn, args.search)
             return
         parser.print_usage()
     except FileNotFoundError as exc:
@@ -83,6 +92,17 @@ def _list(conn: sqlite3.Connection) -> None:
         return
     for document in documents_list:
         print(f"[{document.id}] {document.filename} - {document.status}")
+
+
+def _search(conn: sqlite3.Connection, query: str) -> None:
+    results = search.search_chunks(conn, query)
+    if not results:
+        print("No results found.")
+        return
+    for result in results:
+        print(f"[{result.doc_id}] {result.filename} (chunk {result.seq})")
+        print(result.text)
+        print()
 
 
 if __name__ == "__main__":
