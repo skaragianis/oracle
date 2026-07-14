@@ -1,4 +1,7 @@
+import os
 import sqlite3
+import subprocess
+import sys
 import uuid
 
 import fitz
@@ -322,3 +325,19 @@ def test_chunk_pdf_returns_zero_for_blank_pdf(tmp_path, conn):
         "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (doc_id,)
     ).fetchone()[0]
     assert remaining == 0
+
+
+def test_uploads_dir_can_be_overridden_by_environment(tmp_path):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from oracle.common import ingest; print(ingest.DEFAULT_UPLOADS_DIR)",
+        ],
+        env={**os.environ, "ORACLE_UPLOADS_DIR": str(tmp_path / "elsewhere")},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == str(tmp_path / "elsewhere")

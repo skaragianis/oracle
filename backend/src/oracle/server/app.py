@@ -64,6 +64,7 @@ class DocumentResponse(BaseModel):
     id: int
     filename: str
     status: str
+    error: str | None = None
 
 
 class UploadResponse(BaseModel):
@@ -149,10 +150,28 @@ def add_document(
 def list_documents(conn: Connection) -> list[DocumentResponse]:
     return [
         DocumentResponse(
-            id=document.id, filename=document.filename, status=document.status
+            id=document.id,
+            filename=document.filename,
+            status=document.status,
+            error=document.error,
         )
         for document in documents.list_documents(conn)
     ]
+
+
+@app.get("/documents/{document_id}")
+def get_document(conn: Connection, document_id: int) -> DocumentResponse:
+    """Polled by clients waiting for a pending document to reach a terminal status."""
+    document = documents.get_document(conn, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return DocumentResponse(
+        id=document.id,
+        filename=document.filename,
+        status=document.status,
+        error=document.error,
+    )
 
 
 @app.post("/search")

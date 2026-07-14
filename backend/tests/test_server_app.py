@@ -187,8 +187,18 @@ def test_list_documents_returns_uploaded_documents(client):
 
     assert response.status_code == 200
     assert response.json() == [
-        {"id": first.json()["id"], "filename": "first.pdf", "status": "ready"},
-        {"id": second.json()["id"], "filename": "second.pdf", "status": "ready"},
+        {
+            "id": first.json()["id"],
+            "filename": "first.pdf",
+            "status": "ready",
+            "error": None,
+        },
+        {
+            "id": second.json()["id"],
+            "filename": "second.pdf",
+            "status": "ready",
+            "error": None,
+        },
     ]
 
 
@@ -229,3 +239,37 @@ def test_search_requires_a_query(client):
     response = client.post("/search", json={})
 
     assert response.status_code == 422
+
+
+def test_get_document_returns_a_ready_document(client):
+    uploaded = _upload(client, "source.pdf")
+
+    response = client.get(f"/documents/{uploaded.json()['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": uploaded.json()["id"],
+        "filename": "source.pdf",
+        "status": "ready",
+        "error": None,
+    }
+
+
+def test_get_document_reports_the_failure_reason(client):
+    uploaded = client.post(
+        "/documents",
+        files={"file": ("notes.docx", b"file contents", "application/msword")},
+    )
+
+    response = client.get(f"/documents/{uploaded.json()['id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert ".docx" in body["error"]
+
+
+def test_get_document_404s_for_an_unknown_id(client):
+    response = client.get("/documents/999")
+
+    assert response.status_code == 404

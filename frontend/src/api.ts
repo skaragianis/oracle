@@ -15,6 +15,7 @@ export interface OracleDocument {
   id: number
   filename: string
   status: DocumentStatus
+  error: string | null
 }
 
 export interface UploadResult {
@@ -60,10 +61,57 @@ export function listDocuments(): Promise<OracleDocument[]> {
   return request<OracleDocument[]>('/documents')
 }
 
+export function getDocument(id: number): Promise<OracleDocument> {
+  return request<OracleDocument>(`/documents/${id}`)
+}
+
 export function uploadDocument(file: File): Promise<UploadResult> {
   const body = new FormData()
   body.append('file', file)
   return request<UploadResult>('/documents', { method: 'POST', body })
+}
+
+const POLL_BASE_DELAY_MS = 500
+const POLL_MAX_DELAY_MS = 5_000
+const POLL_MAX_ATTEMPTS = 60
+
+function isTerminal(document: OracleDocument) {
+  return document.status !== 'pending'
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    function onAbort() {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+export async function waitForDocument(
+  id: number,
+  { signal }: { signal?: AbortSignal } = {},
+): Promise<OracleDocument> {
+  let delay = POLL_BASE_DELAY_MS
+
+  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+    const document = await getDocument(id)
+    if (isTerminal(document)) return document
+
+    await sleep(delay, signal)
+    delay = Math.min(delay * 2, POLL_MAX_DELAY_MS)
+  }
+
+  throw new ApiError('Timed out waiting for the document to finish processing.')
 }
 
 export function search(query: string): Promise<SearchResult[]> {

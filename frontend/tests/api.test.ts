@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, listDocuments, search, uploadDocument } from '../src/api'
+import { ApiError, listDocuments, search, uploadDocument, waitForDocument } from '../src/api'
 
 function mockFetch(response: Partial<Response> & { json?: () => Promise<unknown> }) {
   const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, ...response })
@@ -64,5 +64,109 @@ describe('api', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     await expect(listDocuments()).rejects.toThrow(ApiError)
+  })
+})
+
+describe('waitForDocument', () => {
+  const document = (status: string, error: string | null = null) => ({
+    id: 1,
+    filename: 'a.pdf',
+    status,
+    error,
+  })
+
+  function mockFetchSequence(bodies: unknown[]) {
+    const fetchMock = vi.fn()
+    for (const body of bodies) {
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => body })
+    }
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('polls until the document is ready', async () => {
+    vi.useFakeTimers()
+    const fetchMock = mockFetchSequence([
+      document('pending'),
+      document('pending'),
+      document('ready'),
+    ])
+
+    const settled = waitForDocument(1)
+    await vi.runAllTimersAsync()
+
+    expect(await settled).toEqual(document('ready'))
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/documents/1')
+    vi.useRealTimers()
+  })
+
+  it('resolves with a failed document rather than throwing', async () => {
+    vi.useFakeTimers()
+    mockFetchSequence([document('pending'), document('failed', 'Cannot chunk .docx yet.')])
+
+    const settled = waitForDocument(1)
+    await vi.runAllTimersAsync()
+
+    expect((await settled).error).toBe('Cannot chunk .docx yet.')
+    vi.useRealTimers()
+  })
+
+  it('backs off instead of hammering the API', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => document('pending'),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const settled = waitForDocument(1)
+    settled.catch(() => {})
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(6)
+    vi.useRealTimers()
+  })
+
+  it('gives up rather than polling forever', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => document('pending'),
+      }),
+    )
+
+    const settled = waitForDocument(1)
+    const outcome = settled.catch((exception) => exception)
+    await vi.runAllTimersAsync()
+
+    expect(await outcome).toBeInstanceOf(ApiError)
+    vi.useRealTimers()
+  })
+
+  it('stops polling when aborted', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => document('pending'),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+
+    const settled = waitForDocument(1, { signal: controller.signal })
+    const outcome = settled.catch((exception) => exception)
+    await vi.advanceTimersByTimeAsync(600)
+    const callsBeforeAbort = fetchMock.mock.calls.length
+    controller.abort()
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect((await outcome).name).toBe('AbortError')
+    expect(fetchMock.mock.calls.length).toBe(callsBeforeAbort)
+    vi.useRealTimers()
   })
 })

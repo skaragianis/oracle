@@ -7,6 +7,7 @@ class Document:
     id: int
     filename: str
     status: str
+    error: str | None = None
 
 
 def create_document(
@@ -29,9 +30,22 @@ def create_document(
 
 def list_documents(conn: sqlite3.Connection) -> list[Document]:
     rows = conn.execute(
-        "SELECT id, filename, status FROM documents ORDER BY id"
+        "SELECT id, filename, status, error FROM documents ORDER BY id"
     ).fetchall()
-    return [Document(id=row[0], filename=row[1], status=row[2]) for row in rows]
+    return [
+        Document(id=row[0], filename=row[1], status=row[2], error=row[3])
+        for row in rows
+    ]
+
+
+def get_document(conn: sqlite3.Connection, document_id: int) -> Document | None:
+    row = conn.execute(
+        "SELECT id, filename, status, error FROM documents WHERE id = ?",
+        (document_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return Document(id=row[0], filename=row[1], status=row[2], error=row[3])
 
 
 def find_document_by_filename(

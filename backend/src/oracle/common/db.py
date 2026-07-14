@@ -1,8 +1,13 @@
+import os
 import sqlite3
 from pathlib import Path
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parents[3] / "data" / "oracle.db"
-MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
+PACKAGE_ROOT = Path(__file__).resolve().parents[3]
+MIGRATIONS_DIR = PACKAGE_ROOT / "migrations"
+
+DEFAULT_DB_PATH = Path(
+    os.environ.get("ORACLE_DB_PATH") or PACKAGE_ROOT / "data" / "oracle.db"
+)
 
 
 def get_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:

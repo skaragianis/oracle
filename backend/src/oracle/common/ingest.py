@@ -1,5 +1,6 @@
 import logging
 import mimetypes
+import os
 import shutil
 import sqlite3
 import uuid
@@ -23,7 +24,10 @@ logger = logging.getLogger(__name__)
 SUPPORTED_SUFFIXES = {".pdf", ".docx"}
 CHUNKABLE_SUFFIXES = {".pdf"}
 
-DEFAULT_UPLOADS_DIR = Path(__file__).resolve().parents[3] / "data" / "uploads"
+DEFAULT_UPLOADS_DIR = Path(
+    os.environ.get("ORACLE_UPLOADS_DIR")
+    or Path(__file__).resolve().parents[3] / "data" / "uploads"
+)
 
 CHUNK_ENCODING_NAME = "o200k_base"
 CHUNK_TARGET_TOKENS = 800

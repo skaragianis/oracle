@@ -18,7 +18,9 @@ pnpm dev                 # Vite dev server on 127.0.0.1:5173
 pnpm dev --host          # also serve on the LAN (see "Reaching the API" below)
 pnpm test                # run the full Vitest suite
 pnpm test tests/api.test.ts      # run a single test file (no `--`; that runs everything)
-pnpm typecheck           # vue-tsc --noEmit — the real typechecker
+pnpm test:e2e            # run the Playwright suite (starts its own backend + Vite)
+pnpm test:e2e --headed   # watch it in a real browser
+pnpm typecheck           # vue-tsc -b — the real typechecker (plain --noEmit checks nothing)
 pnpm build               # vue-tsc -b && vite build
 pnpm add <package>       # add a runtime dependency
 pnpm add -D <package>    # add a dev-only dependency
@@ -28,13 +30,27 @@ The backend must be running for the app to do anything: `cd ../backend && uv run
 
 Start work by confirming all tests pass first. Never finish work until `pnpm test` and `pnpm typecheck` both pass. **`vite build` is not a typecheck** — Vite strips types without checking them, so a build can succeed while the code is badly broken. `pnpm typecheck` is the authority.
 
+**Don't add narrating comments.** No comments that restate what the code already says, re-explain an env var or an API the reader can look up, or turn a self-explanatory line into a paragraph. A comment earns its place only when the *why* is genuinely non-obvious from the code — a real gotcha, a non-local constraint, a decision that looks wrong until explained. When in doubt, leave it out and let the names and structure carry the meaning.
+
 ## Architecture
 
 - `src/api.ts` is the only place that talks to the backend. Every call goes through the internal `request()` helper, which unwraps FastAPI's `{"detail": ...}` error bodies and throws `ApiError`. Components catch `ApiError` and render the message; they never call `fetch` directly. Add new endpoints here, with a typed interface mirroring the server's Pydantic response model.
+- **Uploads are asynchronous.** `POST /documents` returns `202` with the document `pending`; the backend chunks it in the background. `api.ts` exposes `waitForDocument(id, { signal })`, which polls `GET /documents/{id}` with capped exponential backoff (0.5s → 5s, 60 attempts) until the status is terminal. `App.vue` starts one poll per `pending` document it sees — after an upload, but also on load, which covers a reload mid-ingest or an upload from another tab — and patches the row in place when it settles. The polls share an `AbortController` that `onUnmounted` aborts.
 - `src/App.vue` owns the state (document list, selection, loading, error) and passes it down. The three components under `src/components/` are presentational and talk to the API only for their own action (`DocumentUpload` uploads, `SearchPanel` searches); the document list is fetched once in `App.vue` and refreshed via the `uploaded` event.
 - PrimeVue 4 with the Aura preset, configured in `src/main.ts`. Components are imported individually where used (`import DataTable from 'primevue/datatable'`), not registered globally. Let the theme own the look: `src/style.css` is deliberately minimal, and colours come from PrimeVue CSS variables (`--p-text-muted-color`, `--p-content-background`) rather than hard-coded values.
 - Tests live in top-level `tests/`, not alongside source, mirroring the backend's convention. `include: ['tests/**/*.test.ts']` is set in `vite.config.ts`. Component tests mount with the PrimeVue plugin installed and assert against rendered PrimeVue markup (`.p-card`, `.p-tag`, `input.p-checkbox-input`).
 - `tsconfig.app.json` includes `tests/**/*.ts` as well as `src/`, so test files are typechecked too. Keep it that way.
+
+## Testing tiers
+
+Vitest (`tests/`, jsdom) covers component rendering and the API client's logic — the backoff maths, the attempt cap, abort-on-unmount — with `fetch` mocked. It is the fast tier; put new logic here.
+
+Playwright (`e2e/`, real Chromium) covers only the upload→poll→settle flow, because that is the one thing jsdom cannot honestly test: **jsdom's `File` is not serializable by a real multipart POST**, so an upload from jsdom reaches the backend as `422 field required: file`. `pnpm test:e2e` starts its own uvicorn (against a throwaway database via `ORACLE_DB_PATH`/`ORACLE_UPLOADS_DIR`) and its own Vite, so it needs nothing running first.
+
+Gotchas that cost real time here, all in `playwright.config.ts`:
+
+- **The E2E database is emptied inside the `webServer` command**, not in the config body and not in a `globalSetup`. Playwright re-imports the config in every worker process, and starts `webServer` *before* `globalSetup` — either would delete the database out from under a server that had already migrated it, and every request would then fail with `no such table: documents` against a freshly created empty file.
+- **Ingestion is fast** (~0.5s even for a 400-page PDF), so a spec that waits for a real `pending` row is racing the backend and will pass even with the polling deleted. Two of the three specs hold a row at `pending` by rewriting exactly one `GET /documents` response (`arrivesPending`), so the only thing that can move it to a terminal status is the client's poll. **If you change these specs, verify they still fail when `watchPending()` in `App.vue` is commented out** — that check is what caught them being vacuous in the first place.
 
 ## Reaching the API
 

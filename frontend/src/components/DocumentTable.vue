@@ -55,7 +55,12 @@ const selectableSelection = computed({
       </template>
 
       <Column selection-mode="multiple" header-style="width: 3rem" />
-      <Column field="filename" header="Document" />
+      <Column field="filename" header="Document">
+        <template #body="{ data }: { data: OracleDocument }">
+          <span>{{ data.filename }}</span>
+          <p v-if="data.error" class="document-error">{{ data.error }}</p>
+        </template>
+      </Column>
       <Column field="status" header="Status" header-style="width: 8rem">
         <template #body="{ data }: { data: OracleDocument }">
           <Tag :value="data.status" :severity="SEVERITY_BY_STATUS[data.status]" />
@@ -74,6 +79,12 @@ const selectableSelection = computed({
 
 .documents-empty {
   margin: 0;
+  color: var(--p-text-muted-color);
+}
+
+.document-error {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
   color: var(--p-text-muted-color);
 }
 

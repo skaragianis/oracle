@@ -6,8 +6,13 @@ import Aura from '@primevue/themes/aura'
 import DocumentTable from '../src/components/DocumentTable.vue'
 import type { OracleDocument } from '../src/api'
 
-const READY: OracleDocument = { id: 1, filename: 'ready.pdf', status: 'ready' }
-const PENDING: OracleDocument = { id: 2, filename: 'pending.docx', status: 'pending' }
+const READY: OracleDocument = { id: 1, filename: 'ready.pdf', status: 'ready', error: null }
+const PENDING: OracleDocument = {
+  id: 2,
+  filename: 'pending.docx',
+  status: 'pending',
+  error: null,
+}
 
 function mountTable(documents = [READY, PENDING], loading = false) {
   return mount(DocumentTable, {
@@ -67,5 +72,19 @@ describe('DocumentTable', () => {
     await wrapper.find('thead input.p-checkbox-input').trigger('change')
 
     expect(latestSelection(wrapper)).toEqual([READY])
+  })
+
+  it('shows why a failed document is not searchable', () => {
+    const failed: OracleDocument = {
+      id: 3,
+      filename: 'notes.docx',
+      status: 'failed',
+      error: 'Cannot chunk .docx documents yet, so this file is not searchable.',
+    }
+
+    const wrapper = mountTable([failed])
+
+    expect(wrapper.text()).toContain('Cannot chunk .docx documents yet')
+    expect(wrapper.find('.p-tag').text()).toBe('failed')
   })
 })

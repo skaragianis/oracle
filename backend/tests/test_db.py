@@ -1,4 +1,7 @@
+import os
 import sqlite3
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from oracle.common.db import apply_migrations, get_connection, run_migrations
@@ -217,3 +220,19 @@ def test_get_connection_can_be_used_from_another_thread(tmp_path):
         conn.close()
 
     assert result == (1,)
+
+
+def test_db_path_can_be_overridden_by_environment(tmp_path):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from oracle.common import db; print(db.DEFAULT_DB_PATH)",
+        ],
+        env={**os.environ, "ORACLE_DB_PATH": str(tmp_path / "elsewhere.db")},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == str(tmp_path / "elsewhere.db")

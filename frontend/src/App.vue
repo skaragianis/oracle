@@ -1,25 +1,27 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import Message from 'primevue/message'
 
 import DocumentUpload from './components/DocumentUpload.vue'
 import DocumentTable from './components/DocumentTable.vue'
 import SearchPanel from './components/SearchPanel.vue'
-import { ApiError, listDocuments, type OracleDocument } from './api'
+import { ApiError, listDocuments, waitForDocument, type OracleDocument } from './api'
 
 const documents = ref<OracleDocument[]>([])
 const selected = ref<OracleDocument[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+const polls = new AbortController()
+const watched = new Set<number>()
+
 async function refresh() {
   loading.value = true
   error.value = null
   try {
     documents.value = await listDocuments()
-    // Drop selections for documents that no longer exist.
-    const ids = new Set(documents.value.map((document) => document.id))
-    selected.value = selected.value.filter((document) => ids.has(document.id))
+    pruneSelection()
+    watchPending()
   } catch (exception) {
     error.value =
       exception instanceof ApiError ? exception.message : 'Could not load documents.'
@@ -28,7 +30,41 @@ async function refresh() {
   }
 }
 
+function pruneSelection() {
+  const ready = new Set(
+    documents.value
+      .filter((document) => document.status === 'ready')
+      .map((document) => document.id),
+  )
+  selected.value = selected.value.filter((document) => ready.has(document.id))
+}
+
+function watchPending() {
+  for (const document of documents.value) {
+    if (document.status !== 'pending' || watched.has(document.id)) continue
+
+    watched.add(document.id)
+    waitForDocument(document.id, { signal: polls.signal })
+      .then(settle)
+      .catch((exception) => {
+        if (exception instanceof DOMException && exception.name === 'AbortError') return
+        error.value =
+          exception instanceof ApiError
+            ? exception.message
+            : `Could not get the status of ${document.filename}.`
+      })
+      .finally(() => watched.delete(document.id))
+  }
+}
+
+function settle(settled: OracleDocument) {
+  const index = documents.value.findIndex((document) => document.id === settled.id)
+  if (index === -1 || documents.value[index].status !== 'pending') return
+  documents.value[index] = settled
+}
+
 onMounted(refresh)
+onUnmounted(() => polls.abort())
 </script>
 
 <template>

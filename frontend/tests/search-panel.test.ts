@@ -13,7 +13,7 @@ vi.mock('../src/api', async (importOriginal) => ({
 
 const searchMock = vi.mocked(search)
 
-const READY: OracleDocument = { id: 1, filename: 'first.pdf', status: 'ready' }
+const READY: OracleDocument = { id: 1, filename: 'first.pdf', status: 'ready', error: null }
 
 const RESULTS: SearchResult[] = [
   {
