@@ -5,7 +5,12 @@ import pytest
 from oracle.common.chunks import create_chunk
 from oracle.common.db import apply_migrations
 from oracle.common.documents import create_document
-from oracle.common.search import SearchResult, escape_fts5_query, search_chunks
+from oracle.common.search import (
+    SearchResult,
+    build_fts_query,
+    escape_fts_query,
+    search_chunks,
+)
 
 
 @pytest.fixture
@@ -104,9 +109,33 @@ def test_search_chunks_does_not_raise_on_fts5_syntax_characters(conn, query):
     search_chunks(conn, query)
 
 
-def test_escape_fts5_query_wraps_query_as_a_single_quoted_phrase():
-    assert escape_fts5_query("10.1") == '"10.1"'
+def test_escape_fts_query_wraps_query_as_a_single_quoted_phrase():
+    assert escape_fts_query("10.1") == '"10.1"'
 
 
-def test_escape_fts5_query_doubles_embedded_quotes():
-    assert escape_fts5_query('say "hi"') == '"say ""hi"""'
+def test_escape_fts_query_doubles_embedded_quotes():
+    assert escape_fts_query('say "hi"') == '"say ""hi"""'
+
+
+def test_build_fts_query_lowercases_and_ors_terms():
+    assert build_fts_query("Quick BROWN Fox") == '"quick" OR "brown" OR "fox"'
+
+
+def test_build_fts_query_drops_stop_words():
+    assert build_fts_query("the quick and the brown") == '"quick" OR "brown"'
+
+
+def test_build_fts_query_drops_single_character_tokens():
+    assert build_fts_query("a b of quick") == '"quick"'
+
+
+def test_build_fts_query_returns_none_when_nothing_remains():
+    assert build_fts_query("the a of") is None
+
+
+def test_build_fts_query_returns_none_for_empty_input():
+    assert build_fts_query("") is None
+
+
+def test_build_fts_query_escapes_special_characters_per_term():
+    assert build_fts_query("10.1 fox") == '"10.1" OR "fox"'

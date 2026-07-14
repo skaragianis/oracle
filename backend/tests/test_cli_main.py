@@ -209,6 +209,18 @@ def test_main_search_prints_matching_document_and_chunk(tmp_path, capsys, monkey
     assert "The quick brown fox." in captured.out
 
 
+def test_main_search_with_only_stop_words_prints_no_results(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--search", "the"])
+
+    main()
+
+    captured = capsys.readouterr()
+    assert "No results found." in captured.out
+
+
 def test_main_add_unsupported_extension_prints_friendly_error(
     tmp_path, capsys, monkeypatch
 ):

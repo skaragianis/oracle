@@ -30,7 +30,7 @@ def main() -> None:
         "--search",
         "-s",
         metavar="QUERY",
-        help="Search document chunks with full-text search",
+        help="Search document chunks based on provided terms",
     )
     args = parser.parse_args()
 
@@ -92,6 +92,8 @@ def _list(conn: sqlite3.Connection) -> None:
         return
     for document in documents_list:
         print(f"[{document.id}] {document.filename} - {document.status}")
+    print()
+    print(f"{len(documents_list)} documents found.")
 
 
 def _search(conn: sqlite3.Connection, query: str) -> None:
@@ -101,8 +103,9 @@ def _search(conn: sqlite3.Connection, query: str) -> None:
         return
     for result in results:
         print(f"[{result.doc_id}] {result.filename} (chunk {result.seq})")
-        print(result.text)
+        print(result.text[:80])
         print()
+    print(f"{len(results)} result chunks found.")
 
 
 if __name__ == "__main__":
