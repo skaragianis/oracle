@@ -84,41 +84,70 @@ def test_main_add_missing_file_prints_friendly_error(tmp_path, capsys, monkeypat
     assert str(missing) in captured.err
 
 
-def test_main_init_creates_database_and_runs_migrations(tmp_path, capsys, monkeypatch):
+def test_main_reset_removes_existing_database_and_uploads(
+    tmp_path, capsys, monkeypatch
+):
     db_path = tmp_path / "oracle.db"
+    uploads_dir = tmp_path / "uploads"
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--init"])
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli"])
+    main()
+    uploads_dir.mkdir()
+    (uploads_dir / "stored.pdf").write_bytes(b"data")
+    assert db_path.exists()
+
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--reset"])
+    main()
+
+    captured = capsys.readouterr()
+    assert "Reset database" in captured.out
+    assert not db_path.exists()
+    assert list(uploads_dir.iterdir()) == []
+
+
+def test_main_reset_is_a_noop_when_nothing_exists(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "oracle.db"
+    uploads_dir = tmp_path / "uploads"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--reset"])
 
     main()
 
     captured = capsys.readouterr()
-    assert "Initialized database" in captured.out
-    conn = sqlite3.connect(db_path)
-    table = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='documents'"
-    ).fetchone()
-    assert table is not None
+    assert "Reset database" in captured.out
+    assert not db_path.exists()
 
 
-def test_main_init_deletes_existing_database(tmp_path, monkeypatch):
+def test_main_list_prints_no_documents_message_when_empty(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--list"])
+
+    main()
+
+    captured = capsys.readouterr()
+    assert "No documents found." in captured.out
+
+
+def test_main_list_prints_documents_with_emphasised_id(tmp_path, capsys, monkeypatch):
+    source = tmp_path / "report.pdf"
+    pdf_doc = fitz.open()
+    pdf_doc.new_page().insert_text((72, 72), "Hello world.")
+    pdf_doc.save(source)
+    pdf_doc.close()
+    uploads_dir = tmp_path / "uploads"
     db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
-    monkeypatch.setattr(sys, "argv", ["oracle-cli"])
-    main()
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes)"
-        " VALUES ('a.txt', 'uuid-a', 'text/plain', 10)"
-    )
-    conn.commit()
-    conn.close()
-
-    monkeypatch.setattr(sys, "argv", ["oracle-cli", "-i"])
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--add", str(source)])
     main()
 
-    conn = sqlite3.connect(db_path)
-    rows = conn.execute("SELECT * FROM documents").fetchall()
-    assert rows == []
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "-l"])
+    main()
+
+    captured = capsys.readouterr()
+    assert "[1] report.pdf - pending" in captured.out
 
 
 def test_main_add_unsupported_extension_prints_friendly_error(

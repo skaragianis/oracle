@@ -3,7 +3,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from oracle.common import db, ingest
+from oracle.common import db, documents, ingest
 from oracle.common.ingest import UnsupportedFileTypeError
 
 
@@ -20,6 +20,12 @@ def main() -> None:
         metavar="FILE_PATH",
         help="Add a PDF or DOCX file for later searching",
     )
+    parser.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        help="List processed documents and their status",
+    )
     args = parser.parse_args()
 
     if args.reset:
@@ -30,6 +36,9 @@ def main() -> None:
         conn = _startup()
         if args.add:
             _add(conn, args.add)
+            return
+        if args.list:
+            _list(conn)
             return
         parser.print_usage()
     except FileNotFoundError as exc:
@@ -64,6 +73,15 @@ def _add(conn: sqlite3.Connection, file_path: str) -> None:
         conn, source_path, uploads_dir=ingest.DEFAULT_UPLOADS_DIR
     )
     print(f"Added {file_path} -> {result.destination_path}")
+
+
+def _list(conn: sqlite3.Connection) -> None:
+    documents_list = documents.list_documents(conn)
+    if not documents_list:
+        print("No documents found.")
+        return
+    for document in documents_list:
+        print(f"[{document.id}] {document.filename} - {document.status}")
 
 
 if __name__ == "__main__":
