@@ -1,3 +1,4 @@
+import logging
 import mimetypes
 import shutil
 import sqlite3
@@ -12,11 +13,15 @@ from oracle.common.chunks import create_chunk, delete_chunks_for_document
 from oracle.common.documents import (
     create_document,
     find_document_by_filename,
+    mark_document_failed,
     mark_document_ready,
     replace_document_upload,
 )
 
+logger = logging.getLogger(__name__)
+
 SUPPORTED_SUFFIXES = {".pdf", ".docx"}
+CHUNKABLE_SUFFIXES = {".pdf"}
 
 DEFAULT_UPLOADS_DIR = Path(__file__).resolve().parents[3] / "data" / "uploads"
 
@@ -30,17 +35,32 @@ class UnsupportedFileTypeError(ValueError):
 
 
 @dataclass
-class IngestResult:
+class StagedDocument:
     doc_id: int
     destination_path: Path
     replaced: bool
 
 
-def ingest_file(
+@dataclass
+class ProcessResult:
+    status: str
+    error: str | None
+
+
+@dataclass
+class IngestResult:
+    doc_id: int
+    destination_path: Path
+    replaced: bool
+    status: str
+    error: str | None
+
+
+def stage_file(
     conn: sqlite3.Connection,
     source_path: str | Path,
     uploads_dir: Path = DEFAULT_UPLOADS_DIR,
-) -> IngestResult:
+) -> StagedDocument:
     source_path = Path(source_path)
 
     if source_path.suffix.lower() not in SUPPORTED_SUFFIXES:
@@ -79,14 +99,50 @@ def ingest_file(
             size_bytes=destination_path.stat().st_size,
         )
 
-    # Only PDFs are chunked so far; anything else is stored but stays 'pending'
-    # because it has no chunks and so cannot be searched yet.
-    if destination_path.suffix.lower() == ".pdf":
-        chunk_pdf(conn, doc_id, destination_path)
-        mark_document_ready(conn, doc_id)
+    return StagedDocument(
+        doc_id=doc_id,
+        destination_path=destination_path,
+        replaced=existing is not None,
+    )
+
+
+def process_document(
+    conn: sqlite3.Connection, doc_id: int, stored_path: str | Path
+) -> ProcessResult:
+    stored_path = Path(stored_path)
+    suffix = stored_path.suffix.lower()
+
+    if suffix not in CHUNKABLE_SUFFIXES:
+        error = f"Cannot chunk {suffix} documents yet, so this file is not searchable."
+        mark_document_failed(conn, doc_id, error)
+        return ProcessResult(status="failed", error=error)
+
+    try:
+        chunk_pdf(conn, doc_id, stored_path)
+    except Exception as exc:
+        logger.exception("Failed to chunk document %s at %s", doc_id, stored_path)
+        error = f"{type(exc).__name__}: {exc}"
+        mark_document_failed(conn, doc_id, error)
+        return ProcessResult(status="failed", error=error)
+
+    mark_document_ready(conn, doc_id)
+    return ProcessResult(status="ready", error=None)
+
+
+def ingest_file(
+    conn: sqlite3.Connection,
+    source_path: str | Path,
+    uploads_dir: Path = DEFAULT_UPLOADS_DIR,
+) -> IngestResult:
+    staged = stage_file(conn, source_path, uploads_dir=uploads_dir)
+    processed = process_document(conn, staged.doc_id, staged.destination_path)
 
     return IngestResult(
-        doc_id=doc_id, destination_path=destination_path, replaced=existing is not None
+        doc_id=staged.doc_id,
+        destination_path=staged.destination_path,
+        replaced=staged.replaced,
+        status=processed.status,
+        error=processed.error,
     )
 
 

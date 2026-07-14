@@ -1,4 +1,5 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 from oracle.common.db import apply_migrations, get_connection, run_migrations
 
@@ -200,3 +201,19 @@ def test_run_migrations_applies_and_persists(tmp_path):
         "SELECT name FROM sqlite_master WHERE type='table' AND name='widgets'"
     ).fetchone()
     assert table is not None
+
+
+def test_get_connection_can_be_used_from_another_thread(tmp_path):
+    # FastAPI opens a request's connection on one threadpool worker and may run
+    # the endpoint on another, so a connection that insists on its creating
+    # thread turns any upload into a 500 the moment the workers differ.
+    conn = get_connection(tmp_path / "test.db")
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(
+                lambda: conn.execute("SELECT 1").fetchone()
+            ).result()
+    finally:
+        conn.close()
+
+    assert result == (1,)

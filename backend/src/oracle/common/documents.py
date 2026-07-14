@@ -37,18 +37,26 @@ def list_documents(conn: sqlite3.Connection) -> list[Document]:
 def find_document_by_filename(
     conn: sqlite3.Connection, filename: str
 ) -> tuple[int, str] | None:
-    """Return (id, stored_filename) for the document with this filename, if any."""
     return conn.execute(
         "SELECT id, stored_filename FROM documents WHERE filename = ?", (filename,)
     ).fetchone()
 
 
 def mark_document_ready(conn: sqlite3.Connection, document_id: int) -> None:
-    """Mark a document as chunked and therefore searchable."""
     with conn:
         conn.execute(
             "UPDATE documents SET status = 'ready', error = NULL WHERE id = ?",
             (document_id,),
+        )
+
+
+def mark_document_failed(
+    conn: sqlite3.Connection, document_id: int, error: str
+) -> None:
+    with conn:
+        conn.execute(
+            "UPDATE documents SET status = 'failed', error = ? WHERE id = ?",
+            (error, document_id),
         )
 
 

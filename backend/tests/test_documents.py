@@ -3,7 +3,13 @@ import sqlite3
 import pytest
 
 from oracle.common.db import apply_migrations
-from oracle.common.documents import Document, create_document, list_documents
+from oracle.common.documents import (
+    Document,
+    create_document,
+    list_documents,
+    mark_document_failed,
+    mark_document_ready,
+)
 
 
 @pytest.fixture
@@ -36,6 +42,39 @@ def test_create_document_inserts_row_with_defaults(conn):
         "pending",
         None,
     )
+
+
+def test_mark_document_failed_records_the_reason(conn):
+    doc_id = create_document(
+        conn,
+        filename="a.pdf",
+        stored_filename="uuid-a.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+    )
+
+    mark_document_failed(conn, doc_id, "Broken PDF.")
+
+    assert conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone() == ("failed", "Broken PDF.")
+
+
+def test_mark_document_ready_clears_a_previous_failure(conn):
+    doc_id = create_document(
+        conn,
+        filename="a.pdf",
+        stored_filename="uuid-a.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+    )
+    mark_document_failed(conn, doc_id, "Broken PDF.")
+
+    mark_document_ready(conn, doc_id)
+
+    assert conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone() == ("ready", None)
 
 
 def test_list_documents_returns_empty_list_when_no_documents(conn):

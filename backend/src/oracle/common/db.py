@@ -7,8 +7,10 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
 
 def get_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
@@ -28,9 +30,6 @@ def apply_migrations(
 
     applied_now = []
     for path in pending:
-        # executescript commits any pending transaction and runs the file as
-        # its own transaction, so this insert is a separate commit rather
-        # than part of one atomic unit with the script above it.
         conn.executescript(path.read_text())
         with conn:
             conn.execute(

@@ -15,7 +15,7 @@ const selection = defineModel<OracleDocument[]>('selection', { required: true })
 const SEVERITY_BY_STATUS: Record<DocumentStatus, 'success' | 'warn' | 'danger'> = {
   ready: 'success',
   pending: 'warn',
-  error: 'danger',
+  failed: 'danger',
 }
 
 /** Only chunked documents have anything to search. */

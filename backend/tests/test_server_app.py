@@ -5,24 +5,41 @@ import pytest
 from fastapi.testclient import TestClient
 
 from oracle.common.db import apply_migrations
-from oracle.server.app import allowed_origins, app, get_connection, get_uploads_dir
+from oracle.server.app import (
+    allowed_origins,
+    app,
+    get_connection,
+    get_connection_factory,
+    get_uploads_dir,
+)
 
 
 @pytest.fixture
-def conn(tmp_path):
+def db_path(tmp_path):
+    return tmp_path / "test.db"
+
+
+@pytest.fixture
+def conn(db_path):
     # check_same_thread=False because one connection is shared across the whole
     # test while endpoints run on TestClient's threadpool. The app itself opens a
     # connection per request, on the thread that uses it, so it doesn't need this.
-    connection = sqlite3.connect(tmp_path / "test.db", check_same_thread=False)
+    connection = sqlite3.connect(db_path, check_same_thread=False)
     apply_migrations(connection)
     return connection
 
 
 @pytest.fixture
-def client(conn, tmp_path):
+def client(conn, db_path, tmp_path):
     uploads_dir = tmp_path / "uploads"
     app.dependency_overrides[get_connection] = lambda: conn
     app.dependency_overrides[get_uploads_dir] = lambda: uploads_dir
+    # The background task must open its own connection, exactly as it does in
+    # production — but to this test's database, not the real one. Overriding this
+    # is what keeps a test upload from chunking into data/oracle.db.
+    app.dependency_overrides[get_connection_factory] = lambda: (
+        lambda: sqlite3.connect(db_path)
+    )
     # Not used as a context manager: that would run the lifespan, which migrates
     # the real database at db.DEFAULT_DB_PATH rather than this test's.
     yield TestClient(app)
@@ -72,10 +89,13 @@ def test_health(client):
 def test_add_document_stores_document_and_chunks(client, conn, tmp_path):
     response = _upload(client, "source.pdf")
 
-    assert response.status_code == 201
+    # 202, not 201: the upload is accepted as 'pending' and chunked in a
+    # background task, which TestClient runs before returning the response.
+    assert response.status_code == 202
     body = response.json()
     assert body["filename"] == "source.pdf"
     assert body["replaced"] is False
+    assert body["status"] == "pending"
 
     doc_row = conn.execute(
         "SELECT filename, status FROM documents WHERE id = ?", (body["id"],)
@@ -94,7 +114,7 @@ def test_add_document_replaces_existing_document_with_same_filename(client, conn
     first = _upload(client, "source.pdf", ["Hello world."])
     second = _upload(client, "source.pdf", ["Goodbye world."])
 
-    assert second.status_code == 201
+    assert second.status_code == 202
     assert second.json()["replaced"] is True
     assert second.json()["id"] == first.json()["id"]
 
@@ -110,13 +130,14 @@ def test_add_document_strips_path_from_client_supplied_filename(client, conn):
         files={"file": ("../../etc/evil.pdf", _pdf_bytes(["Hi."]), "application/pdf")},
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     assert response.json()["filename"] == "evil.pdf"
 
 
-def test_add_document_leaves_unchunked_document_pending(client, conn):
-    # A .docx is stored but not chunked yet, so it isn't searchable and must not
-    # be reported as ready.
+def test_add_document_fails_a_document_it_cannot_chunk(client, conn):
+    # A .docx is stored but cannot be chunked yet, so it isn't searchable and must
+    # not be reported as ready. It must not stay 'pending' either: a client polls
+    # until the status is terminal, and would wait on it forever.
     response = client.post(
         "/documents",
         files={
@@ -128,11 +149,12 @@ def test_add_document_leaves_unchunked_document_pending(client, conn):
         },
     )
 
-    assert response.status_code == 201
-    status = conn.execute(
-        "SELECT status FROM documents WHERE id = ?", (response.json()["id"],)
-    ).fetchone()[0]
-    assert status == "pending"
+    assert response.status_code == 202
+    status, error = conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (response.json()["id"],)
+    ).fetchone()
+    assert status == "failed"
+    assert ".docx" in error
 
 
 def test_add_document_rejects_unsupported_file_type(client):

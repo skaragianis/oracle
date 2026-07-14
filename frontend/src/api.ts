@@ -9,8 +9,7 @@
  */
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api'
 
-/** A document's status is 'ready' once it has been chunked and is searchable. */
-export type DocumentStatus = 'ready' | 'pending' | 'error'
+export type DocumentStatus = 'pending' | 'ready' | 'failed'
 
 export interface OracleDocument {
   id: number
@@ -22,6 +21,7 @@ export interface UploadResult {
   id: number
   filename: string
   replaced: boolean
+  status: DocumentStatus
 }
 
 export interface SearchResult {
@@ -30,11 +30,10 @@ export interface SearchResult {
   chunk_id: number
   seq: number
   text: string
-  /** Null for documents whose chunks carry no page information. */
   page_number: number | null
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error { }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -45,8 +44,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    // FastAPI reports errors as {"detail": ...}; fall back to the status text
-    // when the body isn't JSON (a proxy error page, say).
     const detail = await response
       .json()
       .then((body) => body?.detail)

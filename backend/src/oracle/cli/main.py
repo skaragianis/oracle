@@ -84,6 +84,9 @@ def _add(conn: sqlite3.Connection, file_path: str) -> None:
     verb = "Re-added" if result.replaced else "Added"
     print(f"{verb} {file_path} -> {result.destination_path}")
 
+    if result.status != "ready":
+        print(f"Warning: {result.error}", file=sys.stderr)
+
 
 def _list(conn: sqlite3.Connection) -> None:
     documents_list = documents.list_documents(conn)

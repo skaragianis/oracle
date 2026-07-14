@@ -11,6 +11,8 @@ from oracle.common.ingest import (
     UnsupportedFileTypeError,
     chunk_pdf,
     ingest_file,
+    process_document,
+    stage_file,
 )
 
 
@@ -60,6 +62,84 @@ def test_ingest_file_copies_docx_with_uuid_name(tmp_path, conn):
     assert uuid.UUID(result.destination_path.stem)
     assert result.destination_path.read_bytes() == b"file contents"
     assert source.exists()
+
+
+def test_stage_file_leaves_document_pending(tmp_path, conn):
+    # Staging is the half of ingestion the HTTP request does; chunking, and with
+    # it any move off 'pending', happens later in a background task.
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+
+    staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (staged.doc_id,)
+    ).fetchone()[0]
+    assert status == "pending"
+    chunk_count = conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (staged.doc_id,)
+    ).fetchone()[0]
+    assert chunk_count == 0
+
+
+def test_process_document_marks_a_chunked_pdf_ready(tmp_path, conn):
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    result = process_document(conn, staged.doc_id, staged.destination_path)
+
+    assert result.status == "ready"
+    assert result.error is None
+    assert conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (staged.doc_id,)
+    ).fetchone() == ("ready", None)
+
+
+def test_process_document_records_failure_instead_of_raising(tmp_path, conn):
+    # A background task has nobody to return an error to, so a corrupt PDF has to
+    # land on the document as 'failed' rather than propagate.
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"not a real pdf")
+    staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    result = process_document(conn, staged.doc_id, staged.destination_path)
+
+    assert result.status == "failed"
+    status, error = conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (staged.doc_id,)
+    ).fetchone()
+    assert status == "failed"
+    assert error == result.error
+
+
+def test_ingest_file_fails_a_document_it_cannot_chunk(tmp_path, conn):
+    source = tmp_path / "source.docx"
+    source.write_bytes(b"file contents")
+
+    result = ingest_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    assert result.status == "failed"
+    assert result.error is not None and ".docx" in result.error
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (result.doc_id,)
+    ).fetchone()[0]
+    assert status == "failed"
+
+
+def test_ingest_file_re_adding_a_failed_document_resets_it_to_pending(tmp_path, conn):
+    # The failure and its reason belong to a specific upload, so a replacement
+    # must not inherit them while it waits to be chunked.
+    source = tmp_path / "source.docx"
+    source.write_bytes(b"file contents")
+    failed = ingest_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    assert staged.doc_id == failed.doc_id
+    assert conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (staged.doc_id,)
+    ).fetchone() == ("pending", None)
 
 
 def test_ingest_file_creates_uploads_dir_if_missing(tmp_path, conn):
