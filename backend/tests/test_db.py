@@ -88,6 +88,60 @@ def test_chunks_cascade_delete_on_document_removal(tmp_path):
     assert remaining == 0
 
 
+def test_chunks_fts_insert_trigger_mirrors_new_chunk(tmp_path):
+    conn = get_connection(tmp_path / "test.db")
+    apply_migrations(conn)
+
+    conn.execute(
+        "INSERT INTO documents (id, filename, stored_filename, mime_type, size_bytes)"
+        " VALUES (1, 'a.txt', 'uuid-a', 'text/plain', 10)"
+    )
+    conn.execute(
+        "INSERT INTO chunks (id, doc_id, seq, text) VALUES (1, 1, 0, 'hello world')"
+    )
+
+    matches = conn.execute(
+        "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH 'hello'"
+    ).fetchall()
+    assert matches == [(1,)]
+
+
+def test_chunks_fts_delete_trigger_removes_deleted_chunk(tmp_path):
+    conn = get_connection(tmp_path / "test.db")
+    apply_migrations(conn)
+
+    conn.execute(
+        "INSERT INTO documents (id, filename, stored_filename, mime_type, size_bytes)"
+        " VALUES (1, 'a.txt', 'uuid-a', 'text/plain', 10)"
+    )
+    conn.execute(
+        "INSERT INTO chunks (id, doc_id, seq, text) VALUES (1, 1, 0, 'hello world')"
+    )
+
+    conn.execute("DELETE FROM chunks WHERE id = 1")
+
+    remaining = conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+    assert remaining == 0
+
+
+def test_chunks_fts_delete_trigger_fires_on_cascade_delete(tmp_path):
+    conn = get_connection(tmp_path / "test.db")
+    apply_migrations(conn)
+
+    conn.execute(
+        "INSERT INTO documents (id, filename, stored_filename, mime_type, size_bytes)"
+        " VALUES (1, 'a.txt', 'uuid-a', 'text/plain', 10)"
+    )
+    conn.execute(
+        "INSERT INTO chunks (id, doc_id, seq, text) VALUES (1, 1, 0, 'hello world')"
+    )
+
+    conn.execute("DELETE FROM documents WHERE id = 1")
+
+    remaining = conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+    assert remaining == 0
+
+
 def test_project_migrations_create_documents_table(tmp_path):
     conn = sqlite3.connect(tmp_path / "test.db")
 
