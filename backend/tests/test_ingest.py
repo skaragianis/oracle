@@ -87,6 +87,65 @@ def test_ingest_file_raises_for_missing_source(tmp_path, conn):
         ingest_file(conn, source, uploads_dir=tmp_path / "uploads")
 
 
+def test_ingest_file_first_add_is_not_marked_as_replaced(tmp_path, conn):
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    uploads_dir = tmp_path / "uploads"
+
+    result = ingest_file(conn, source, uploads_dir=uploads_dir)
+
+    assert result.replaced is False
+
+
+def test_ingest_file_reingesting_same_filename_replaces_document(tmp_path, conn):
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    uploads_dir = tmp_path / "uploads"
+
+    first = ingest_file(conn, source, uploads_dir=uploads_dir)
+
+    _write_pdf(source, [["Goodbye world."]])
+    second = ingest_file(conn, source, uploads_dir=uploads_dir)
+
+    assert second.replaced is True
+    assert second.doc_id == first.doc_id
+
+    count = conn.execute(
+        "SELECT COUNT(*) FROM documents WHERE filename = ?", ("source.pdf",)
+    ).fetchone()[0]
+    assert count == 1
+
+
+def test_ingest_file_reingesting_removes_previous_upload(tmp_path, conn):
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    uploads_dir = tmp_path / "uploads"
+
+    first = ingest_file(conn, source, uploads_dir=uploads_dir)
+    second = ingest_file(conn, source, uploads_dir=uploads_dir)
+
+    assert not first.destination_path.exists()
+    assert second.destination_path.exists()
+    assert list(uploads_dir.iterdir()) == [second.destination_path]
+
+
+def test_ingest_file_reingesting_recalculates_chunks(tmp_path, conn):
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    uploads_dir = tmp_path / "uploads"
+
+    first = ingest_file(conn, source, uploads_dir=uploads_dir)
+
+    _write_pdf(source, [["Goodbye world."]])
+    second = ingest_file(conn, source, uploads_dir=uploads_dir)
+
+    assert first.doc_id == second.doc_id
+    chunk_rows = conn.execute(
+        "SELECT text FROM chunks WHERE doc_id = ?", (second.doc_id,)
+    ).fetchall()
+    assert chunk_rows == [("Goodbye world.\n",)]
+
+
 def test_ingest_file_records_document_and_chunks(tmp_path, conn):
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])

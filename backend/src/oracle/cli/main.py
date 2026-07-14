@@ -72,7 +72,8 @@ def _add(conn: sqlite3.Connection, file_path: str) -> None:
     result = ingest.ingest_file(
         conn, source_path, uploads_dir=ingest.DEFAULT_UPLOADS_DIR
     )
-    print(f"Added {file_path} -> {result.destination_path}")
+    verb = "Re-added" if result.replaced else "Added"
+    print(f"{verb} {file_path} -> {result.destination_path}")
 
 
 def _list(conn: sqlite3.Connection) -> None:

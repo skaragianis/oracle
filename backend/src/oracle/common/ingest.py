@@ -8,8 +8,12 @@ from pathlib import Path
 import fitz
 import tiktoken
 
-from oracle.common.chunks import create_chunk
-from oracle.common.documents import create_document
+from oracle.common.chunks import create_chunk, delete_chunks_for_document
+from oracle.common.documents import (
+    create_document,
+    find_document_by_filename,
+    replace_document_upload,
+)
 
 SUPPORTED_SUFFIXES = {".pdf", ".docx"}
 
@@ -28,6 +32,7 @@ class UnsupportedFileTypeError(ValueError):
 class IngestResult:
     doc_id: int
     destination_path: Path
+    replaced: bool
 
 
 def ingest_file(
@@ -45,23 +50,40 @@ def ingest_file(
     if not source_path.is_file():
         raise FileNotFoundError(source_path)
 
+    existing = find_document_by_filename(conn, source_path.name)
+
     uploads_dir.mkdir(parents=True, exist_ok=True)
     destination_path = uploads_dir / f"{uuid.uuid4()}{source_path.suffix.lower()}"
     shutil.copy2(source_path, destination_path)
 
     mime_type, _ = mimetypes.guess_type(source_path.name)
-    doc_id = create_document(
-        conn,
-        filename=source_path.name,
-        stored_filename=destination_path.name,
-        mime_type=mime_type or "application/octet-stream",
-        size_bytes=destination_path.stat().st_size,
-    )
+
+    if existing is not None:
+        doc_id, previous_stored_filename = existing
+        delete_chunks_for_document(conn, doc_id)
+        replace_document_upload(
+            conn,
+            doc_id,
+            stored_filename=destination_path.name,
+            mime_type=mime_type or "application/octet-stream",
+            size_bytes=destination_path.stat().st_size,
+        )
+        (uploads_dir / previous_stored_filename).unlink(missing_ok=True)
+    else:
+        doc_id = create_document(
+            conn,
+            filename=source_path.name,
+            stored_filename=destination_path.name,
+            mime_type=mime_type or "application/octet-stream",
+            size_bytes=destination_path.stat().st_size,
+        )
 
     if destination_path.suffix.lower() == ".pdf":
         chunk_pdf(conn, doc_id, destination_path)
 
-    return IngestResult(doc_id=doc_id, destination_path=destination_path)
+    return IngestResult(
+        doc_id=doc_id, destination_path=destination_path, replaced=existing is not None
+    )
 
 
 @dataclass

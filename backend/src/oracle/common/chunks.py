@@ -31,3 +31,8 @@ def create_chunk(
         )
     assert cursor.lastrowid is not None
     return cursor.lastrowid
+
+
+def delete_chunks_for_document(conn: sqlite3.Connection, doc_id: int) -> None:
+    with conn:
+        conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))

@@ -69,6 +69,32 @@ def test_main_add_ingests_file_and_records_document(tmp_path, capsys, monkeypatc
     assert chunk_row == ("Hello world.\n",)
 
 
+def test_main_add_twice_prints_re_added_and_keeps_one_document(
+    tmp_path, capsys, monkeypatch
+):
+    source = tmp_path / "report.pdf"
+    pdf_doc = fitz.open()
+    pdf_doc.new_page().insert_text((72, 72), "Hello world.")
+    pdf_doc.save(source)
+    pdf_doc.close()
+    uploads_dir = tmp_path / "uploads"
+    db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--add", str(source)])
+    main()
+    capsys.readouterr()
+
+    main()
+
+    captured = capsys.readouterr()
+    assert captured.out.startswith("Re-added")
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    assert count == 1
+    assert len(list(uploads_dir.iterdir())) == 1
+
+
 def test_main_add_missing_file_prints_friendly_error(tmp_path, capsys, monkeypatch):
     missing = tmp_path / "missing.pdf"
     monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", tmp_path / "uploads")
