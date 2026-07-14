@@ -7,6 +7,8 @@ import { ApiError, uploadDocument } from '../api'
 
 const emit = defineEmits<{ uploaded: [] }>()
 
+// PrimeVue's public methods type omits clear(), though the component exposes it.
+const fileUpload = ref<InstanceType<typeof FileUpload> & { clear(): void }>()
 const uploading = ref(false)
 const errors = ref<string[]>([])
 
@@ -32,6 +34,9 @@ async function upload(event: FileUploadUploaderEvent) {
   )
 
   uploading.value = false
+  // customUpload leaves the chosen files staged with a permanent "Pending"
+  // badge; the real status lives in the document table, so drop the staging row.
+  fileUpload.value?.clear()
   // Even a partly failed batch may have added documents, so always refresh.
   emit('uploaded')
 }
@@ -40,6 +45,7 @@ async function upload(event: FileUploadUploaderEvent) {
 <template>
   <section>
     <FileUpload
+      ref="fileUpload"
       name="file"
       accept=".pdf,.docx"
       :multiple="true"
@@ -75,5 +81,11 @@ async function upload(event: FileUploadUploaderEvent) {
 
 .upload-error {
   margin-top: 0.75rem;
+}
+
+/* PDF/DOCX have no image preview, so FileUpload's thumbnail <img> renders as a
+   broken icon squeezing the filename (its alt text) into a narrow column. */
+:deep(.p-fileupload-file-thumbnail) {
+  display: none;
 }
 </style>
