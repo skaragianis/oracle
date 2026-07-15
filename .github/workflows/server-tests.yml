@@ -28,5 +28,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Typecheck
+        run: uv run ty check
+
       - name: Run server and common tests
         run: uv run pytest --ignore=tests/test_cli_main.py
