@@ -20,12 +20,19 @@ const SOURCE_LABELS: Record<SearchSource, string> = {
   vector: 'Vector',
 }
 
+const COPIED_FEEDBACK_MS = 2_000
+
 const props = defineProps<{ selected: OracleDocument[] }>()
 
 const query = ref('')
 const searching = ref(false)
 const error = ref<string | null>(null)
 const results = ref<SearchResult[] | null>(null)
+// The submitted question, not the live input: the user can edit the box after
+// searching, and the copied text must match the results actually shown.
+const submittedQuery = ref('')
+const copied = ref(false)
+let copiedTimer: ReturnType<typeof setTimeout> | undefined
 
 const canSearch = computed(() => query.value.trim().length > 0 && !searching.value)
 
@@ -46,8 +53,10 @@ async function runSearch() {
 
   searching.value = true
   error.value = null
+  copied.value = false
   try {
     results.value = await search(query.value)
+    submittedQuery.value = query.value.trim()
   } catch (exception) {
     results.value = null
     error.value =
@@ -55,6 +64,36 @@ async function runSearch() {
   } finally {
     searching.value = false
   }
+}
+
+function formatForLlm(question: string, searchResults: SearchResult[]): string {
+  const blocks = searchResults.map((result, index) => {
+    const page = result.page_number !== null ? `, page ${result.page_number}` : ''
+    const sources = result.sources.join(', ')
+    const header = `--- Result ${index + 1}: ${result.filename}${page} (found by: ${sources}) ---`
+    return `${header}\n${result.text.trim()}`
+  })
+  return [
+    'I searched my documents for the question below. Answer it using the search results.',
+    `Question: ${question}`,
+    'Search results:',
+    ...blocks,
+  ].join('\n\n')
+}
+
+async function copyForLlm() {
+  if (!scopedResults.value?.length) return
+  try {
+    await navigator.clipboard.writeText(
+      formatForLlm(submittedQuery.value, scopedResults.value),
+    )
+  } catch {
+    error.value = 'Could not copy to the clipboard.'
+    return
+  }
+  copied.value = true
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => (copied.value = false), COPIED_FEEDBACK_MS)
 }
 </script>
 
@@ -73,6 +112,17 @@ async function runSearch() {
     <p v-if="selected.length" class="search-scope">
       Searching {{ selected.length }} selected document<span v-if="selected.length > 1">s</span>.
     </p>
+
+    <div v-if="!searching && scopedResults?.length" class="copy-bar">
+      <Button
+        :label="copied ? 'Copied' : 'Copy question & results for an LLM'"
+        :icon="copied ? 'pi pi-check' : 'pi pi-copy'"
+        severity="secondary"
+        outlined
+        size="small"
+        @click="copyForLlm"
+      />
+    </div>
 
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
@@ -117,6 +167,10 @@ async function runSearch() {
 .search-scope,
 .search-empty {
   color: var(--p-text-muted-color);
+}
+
+.copy-bar {
+  margin-top: 0.75rem;
 }
 
 .search-loading {
