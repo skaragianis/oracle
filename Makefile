@@ -25,14 +25,14 @@ logs: ## Tail the docker container logs
 cli-run: ## Run the CLI; pass arguments via ARGS="--help"
 	cd backend && uv run oracle-cli $(ARGS)
 
-cli-test: ## Run the CLI tests
-	cd backend && uv run pytest tests/test_cli_main.py
+cli-test: ## Run the CLI and common tests
+	cd backend && uv run pytest --ignore=tests/test_server_app.py
 
 server-run: ## Run the API server on 127.0.0.1:8000 (dev, no docker)
 	cd backend && uv run oracle-server
 
-server-test: ## Run the API server tests
-	cd backend && uv run pytest tests/test_server_app.py
+server-test: ## Run the API server and common tests
+	cd backend && uv run pytest --ignore=tests/test_cli_main.py
 
 backend-test: ## Run the full backend test suite (CLI, server, common)
 	cd backend && uv run pytest
