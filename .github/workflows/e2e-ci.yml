@@ -1,0 +1,80 @@
+name: E2E CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/e2e-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/e2e-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install backend dependencies
+        run: uv sync
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Lint backend
+        run: uv run ruff check
+        working-directory: backend
+
+      - name: Typecheck backend
+        run: uv run ty check
+        working-directory: backend
+
+      - name: Typecheck frontend
+        run: pnpm typecheck
+        working-directory: frontend
+
+      # The backend downloads the embedding model on first startup (BAAI/bge-small-en-v1.5,
+      # ~130MB); without this cache every run pays that download inside Playwright's
+      # webServer startup window.
+      - name: Cache embedding model
+        uses: actions/cache@v6
+        with:
+          path: backend/data/models
+          key: fastembed-bge-small-en-v1.5
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run E2E tests
+        run: pnpm test:e2e
+        working-directory: frontend
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: frontend/test-results/
+          retention-days: 7
