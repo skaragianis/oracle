@@ -1,0 +1,32 @@
+name: CLI tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/cli-tests.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/cli-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run CLI tests
+        run: uv run pytest tests/test_cli_main.py
