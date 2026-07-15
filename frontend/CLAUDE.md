@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Oracle: use LLMs to ask questions of provided documents. This `frontend/` directory is one of two apps in the `oracle` monorepo (the other is `backend/`, a sibling directory outside this one — its Python conventions do not apply here, and vice versa).
+The Vue half of the `oracle` monorepo — the repo-wide picture, cross-cutting `make` targets, and the conventions shared by both apps live in the root `CLAUDE.md`.
 
 A Vue 3 SPA (TypeScript, Vite, PrimeVue) over the backend's HTTP API: upload documents, pick which ones to search, run a full-text search, read the matching chunks.
 
@@ -28,9 +28,7 @@ pnpm add -D <package>    # add a dev-only dependency
 
 The backend must be running for the app to do anything: `cd ../backend && uv run oracle-server`.
 
-Start work by confirming all tests pass first. Never finish work until `pnpm test` and `pnpm typecheck` both pass. **`vite build` is not a typecheck** — Vite strips types without checking them, so a build can succeed while the code is badly broken. `pnpm typecheck` is the authority.
-
-**Don't add narrating comments.** No comments that restate what the code already says, re-explain an env var or an API the reader can look up, or turn a self-explanatory line into a paragraph. A comment earns its place only when the *why* is genuinely non-obvious from the code — a real gotcha, a non-local constraint, a decision that looks wrong until explained. When in doubt, leave it out and let the names and structure carry the meaning.
+**`vite build` is not a typecheck** — Vite strips types without checking them, so a build can succeed while the code is badly broken. `pnpm typecheck` is the authority here, and it is what "typechecker" means in the root CLAUDE.md's finish-work rule.
 
 ## Architecture
 

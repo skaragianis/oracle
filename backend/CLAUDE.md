@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Oracle: use LLMs to ask questions of provided documents. This `backend/` directory is one of two apps in the `oracle` monorepo (the other is `frontend/`, a sibling directory outside this one — Python conventions do not apply there).
+The Python half of the `oracle` monorepo — the repo-wide picture, cross-cutting `make` targets, and the conventions shared by both apps live in the root `CLAUDE.md`.
 
 Within `backend/`, a single Python package (`oracle`) contains two independently runnable apps sharing one `pyproject.toml`, one virtualenv, and one dependency set:
 
@@ -27,10 +27,6 @@ uv run uvicorn oracle.server.app:app --reload   # run the server with autoreload
 uv add <package>         # add a runtime dependency
 uv add --dev <package>   # add a dev-only dependency
 ```
-
-Start work by confirming all tests pass first. Never finish work until all tests pass, the type checker shows no feedback, and the linter shows no feedback.
-
-**Don't add narrating comments.** No comments that restate what the code already says, re-explain an env var or an API the reader can look up, or turn a self-explanatory line into a paragraph. A comment earns its place only when the *why* is genuinely non-obvious from the code — a real gotcha, a non-local constraint, a decision that looks wrong until explained. When in doubt, leave it out and let the names and structure carry the meaning.
 
 ## Architecture
 
