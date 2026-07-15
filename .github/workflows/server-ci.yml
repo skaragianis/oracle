@@ -1,15 +1,15 @@
-name: Server testsA
+name: Server CI
 
 on:
   push:
     branches: [main]
     paths:
       - 'backend/**'
-      - '.github/workflows/server-tests.yml'
+      - '.github/workflows/server-ci.yml'
   pull_request:
     paths:
       - 'backend/**'
-      - '.github/workflows/server-tests.yml'
+      - '.github/workflows/server-ci.yml'
 
 jobs:
   test:

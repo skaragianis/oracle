@@ -1,15 +1,15 @@
-name: CLI tests
+name: CLI CI
 
 on:
   push:
     branches: [main]
     paths:
       - 'backend/**'
-      - '.github/workflows/cli-tests.yml'
+      - '.github/workflows/cli-ci.yml'
   pull_request:
     paths:
       - 'backend/**'
-      - '.github/workflows/cli-tests.yml'
+      - '.github/workflows/cli-ci.yml'
 
 jobs:
   test:
