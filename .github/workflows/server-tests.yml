@@ -28,5 +28,5 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run server tests
-        run: uv run pytest tests/test_server_app.py
+      - name: Run server and common tests
+        run: uv run pytest --ignore=tests/test_cli_main.py
