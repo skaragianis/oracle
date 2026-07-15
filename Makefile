@@ -5,10 +5,15 @@ PORT := 8080
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs cli-run cli-test server-run server-test backend-test backend-lint frontend-run frontend-test frontend-e2e frontend-lint test lint
+.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint frontend-run frontend-test frontend-e2e frontend-lint test lint
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  make %-16s %s\n", $$1, $$2}'
+
+setup: ## Install backend and frontend deps, plus Playwright's browser binaries
+	cd backend && uv sync
+	cd frontend && pnpm install
+	cd frontend && pnpm exec playwright install
 
 up: ## Build and run the whole app in docker at http://localhost:8080
 	docker build -t $(IMAGE) .
