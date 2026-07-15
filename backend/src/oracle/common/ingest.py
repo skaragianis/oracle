@@ -4,9 +4,12 @@ import os
 import shutil
 import sqlite3
 import uuid
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
+import docx
 import fitz
 import tiktoken
 
@@ -23,7 +26,6 @@ from oracle.common.embeddings import ChunkToIndex, VectorIndex
 logger = logging.getLogger(__name__)
 
 SUPPORTED_SUFFIXES = {".pdf", ".docx"}
-CHUNKABLE_SUFFIXES = {".pdf"}
 
 DEFAULT_UPLOADS_DIR = Path(
     os.environ.get("ORACLE_UPLOADS_DIR")
@@ -121,15 +123,9 @@ def process_document(
     vector_index: VectorIndex | None = None,
 ) -> ProcessResult:
     stored_path = Path(stored_path)
-    suffix = stored_path.suffix.lower()
-
-    if suffix not in CHUNKABLE_SUFFIXES:
-        error = f"Cannot chunk {suffix} documents yet, so this file is not searchable."
-        mark_document_failed(conn, doc_id, error)
-        return ProcessResult(status="failed", error=error)
 
     try:
-        chunk_pdf(conn, doc_id, stored_path)
+        chunk_document(conn, doc_id, stored_path)
         if vector_index is not None:
             embed_document_chunks(conn, doc_id, vector_index)
     except Exception as exc:
@@ -178,25 +174,83 @@ def ingest_file(
 @dataclass
 class _BufferedLine:
     text: str
-    page_number: int
+    page_number: int | None
     paragraph_index: int
     char_start: int
     token_count: int
 
 
-def chunk_pdf(
+class LineSegment(NamedTuple):
+    text: str
+    page_number: int | None
+    paragraph_index: int
+
+
+def chunk_document(
     conn: sqlite3.Connection,
     doc_id: int,
-    pdf_path: str | Path,
+    path: str | Path,
     *,
     encoding_name: str = CHUNK_ENCODING_NAME,
     target_tokens: int = CHUNK_TARGET_TOKENS,
     overlap_tokens: int = CHUNK_OVERLAP_TOKENS,
 ) -> int:
+    path = Path(path)
+    suffix = path.suffix.lower()
+    lines: Iterator[LineSegment]
+    if suffix == ".pdf":
+        lines = _iter_pdf_lines(path)
+    elif suffix == ".docx":
+        lines = _iter_docx_lines(path)
+    else:
+        raise UnsupportedFileTypeError(f"Cannot chunk {suffix} documents yet")
+
+    return _chunk_lines(
+        conn,
+        doc_id,
+        lines,
+        encoding_name=encoding_name,
+        target_tokens=target_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+
+
+def _iter_pdf_lines(pdf_path: Path) -> Iterator[LineSegment]:
+    paragraph_index = -1
+    with fitz.open(pdf_path) as doc:
+        for page_number, page in enumerate(doc, start=1):
+            for block in page.get_text("blocks"):
+                block_text = block[4]
+                if not block_text.strip():
+                    continue
+                paragraph_index += 1
+
+                for raw_line in block_text.splitlines():
+                    yield LineSegment(raw_line + "\n", page_number, paragraph_index)
+
+
+def _iter_docx_lines(docx_path: Path) -> Iterator[LineSegment]:
+    paragraph_index = -1
+    for paragraph in docx.Document(str(docx_path)).paragraphs:
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        paragraph_index += 1
+        yield LineSegment(text + "\n", None, paragraph_index)
+
+
+def _chunk_lines(
+    conn: sqlite3.Connection,
+    doc_id: int,
+    lines: Iterable[LineSegment],
+    *,
+    encoding_name: str,
+    target_tokens: int,
+    overlap_tokens: int,
+) -> int:
     encoding = tiktoken.get_encoding(encoding_name)
     seq = 0
     char_offset = 0
-    paragraph_index = -1
     buffer: list[_BufferedLine] = []
     buffer_tokens = 0
     buffer_has_new_content = False
@@ -234,38 +288,29 @@ def chunk_pdf(
         buffer_tokens = overlap_tokens_used
         buffer_has_new_content = False
 
-    with fitz.open(pdf_path) as doc:
-        for page_number, page in enumerate(doc, start=1):
-            for block in page.get_text("blocks"):
-                block_text = block[4]
-                if not block_text.strip():
-                    continue
-                paragraph_index += 1
+    for line_text, page_number, paragraph_index in lines:
+        token_count = len(encoding.encode(line_text))
 
-                for raw_line in block_text.splitlines():
-                    line_text = raw_line + "\n"
-                    token_count = len(encoding.encode(line_text))
+        buffer.append(
+            _BufferedLine(
+                text=line_text,
+                page_number=page_number,
+                paragraph_index=paragraph_index,
+                char_start=char_offset,
+                token_count=token_count,
+            )
+        )
+        buffer_tokens += token_count
+        buffer_has_new_content = True
+        char_offset += len(line_text)
 
-                    buffer.append(
-                        _BufferedLine(
-                            text=line_text,
-                            page_number=page_number,
-                            paragraph_index=paragraph_index,
-                            char_start=char_offset,
-                            token_count=token_count,
-                        )
-                    )
-                    buffer_tokens += token_count
-                    buffer_has_new_content = True
-                    char_offset += len(line_text)
-
-                    if buffer_tokens >= target_tokens:
-                        flush()
+        if buffer_tokens >= target_tokens:
+            flush()
 
     flush()
     return seq
 
 
-def remove_document_uploads():
+def remove_document_uploads() -> None:
     for item in DEFAULT_UPLOADS_DIR.iterdir():
         item.unlink()

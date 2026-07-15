@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.139.0",
     "fastembed>=0.8.0",
     "pymupdf>=1.28.0",
+    "python-docx>=1.2.0",
     "python-multipart>=0.0.32",
     "tiktoken>=0.13.0",
     "uvicorn[standard]>=0.50.2",
@@ -24,6 +25,16 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I",
+    "ANN"
+]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = false
+ignore-fully-untyped = false
 
 [dependency-groups]
 dev = [

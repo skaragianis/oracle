@@ -21,9 +21,9 @@ const PENDING: OracleDocument = {
 const READY: OracleDocument = { ...PENDING, status: 'ready' }
 const FAILED: OracleDocument = {
   ...PENDING,
-  filename: 'notes.docx',
+  filename: 'notes.rtf',
   status: 'failed',
-  error: 'Cannot chunk .docx documents yet, so this file is not searchable.',
+  error: 'Cannot chunk .rtf documents yet, so this file is not searchable.',
 }
 
 function mountApp() {
@@ -59,7 +59,7 @@ describe('App', () => {
     await flushPromises()
 
     expect(statuses(wrapper)).toEqual(['failed'])
-    expect(wrapper.text()).toContain('Cannot chunk .docx documents yet')
+    expect(wrapper.text()).toContain('Cannot chunk .rtf documents yet')
   })
 
   it('does not poll documents that already have a terminal status', async () => {

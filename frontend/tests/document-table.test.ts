@@ -77,14 +77,14 @@ describe('DocumentTable', () => {
   it('shows why a failed document is not searchable', () => {
     const failed: OracleDocument = {
       id: 3,
-      filename: 'notes.docx',
+      filename: 'notes.rtf',
       status: 'failed',
-      error: 'Cannot chunk .docx documents yet, so this file is not searchable.',
+      error: 'Cannot chunk .rtf documents yet, so this file is not searchable.',
     }
 
     const wrapper = mountTable([failed])
 
-    expect(wrapper.text()).toContain('Cannot chunk .docx documents yet')
+    expect(wrapper.text()).toContain('Cannot chunk .rtf documents yet')
     expect(wrapper.find('.p-tag').text()).toBe('failed')
   })
 })

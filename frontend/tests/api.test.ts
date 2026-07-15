@@ -103,12 +103,12 @@ describe('waitForDocument', () => {
 
   it('resolves with a failed document rather than throwing', async () => {
     vi.useFakeTimers()
-    mockFetchSequence([document('pending'), document('failed', 'Cannot chunk .docx yet.')])
+    mockFetchSequence([document('pending'), document('failed', 'Cannot chunk .rtf yet.')])
 
     const settled = waitForDocument(1)
     await vi.runAllTimersAsync()
 
-    expect((await settled).error).toBe('Cannot chunk .docx yet.')
+    expect((await settled).error).toBe('Cannot chunk .rtf yet.')
     vi.useRealTimers()
   })
 

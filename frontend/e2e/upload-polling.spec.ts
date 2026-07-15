@@ -53,16 +53,12 @@ test('the uploader clears its staging row once the upload completes', async ({ p
   await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 60_000 })
 })
 
-test('a document that cannot be chunked ends failed, and says why', async ({ page }) => {
+test('a docx upload is chunked and becomes ready, just like a PDF', async ({ page }) => {
   await page.goto('/')
-  await arrivesPending(page, 'notes.docx')
 
   await upload(page, DOCX)
 
-  await expect(row(page, 'notes.docx').getByText('failed')).toBeVisible({
-    timeout: 20_000,
-  })
-  await expect(row(page, 'notes.docx')).toContainText('Cannot chunk .docx documents yet')
+  await expect(row(page, 'notes.docx').getByText('ready')).toBeVisible({ timeout: 20_000 })
 })
 
 test('a document found pending on load is polled to completion', async ({ page }) => {

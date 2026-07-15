@@ -1,5 +1,7 @@
+import io
 import sqlite3
 
+import docx
 import fitz
 import pytest
 from fastapi.testclient import TestClient
@@ -67,6 +69,15 @@ def _upload(client, filename, paragraphs=("Hello world.",)):
         "/documents",
         files={"file": (filename, _pdf_bytes(paragraphs), "application/pdf")},
     )
+
+
+def _docx_bytes(paragraphs):
+    document = docx.Document()
+    for paragraph in paragraphs:
+        document.add_paragraph(paragraph)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
 
 
 def test_allowed_origins_is_empty_when_unset(monkeypatch):
@@ -138,10 +149,34 @@ def test_add_document_strips_path_from_client_supplied_filename(client, conn):
     assert response.json()["filename"] == "evil.pdf"
 
 
-def test_add_document_fails_a_document_it_cannot_chunk(client, conn):
-    # A .docx is stored but cannot be chunked yet, so it isn't searchable and must
-    # not be reported as ready. It must not stay 'pending' either: a client polls
-    # until the status is terminal, and would wait on it forever.
+def test_add_document_chunks_a_docx(client, conn):
+    response = client.post(
+        "/documents",
+        files={
+            "file": (
+                "notes.docx",
+                _docx_bytes(["Hello world."]),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert response.status_code == 202
+    status, error = conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (response.json()["id"],)
+    ).fetchone()
+    assert status == "ready"
+    assert error is None
+    chunk_rows = conn.execute(
+        "SELECT text FROM chunks WHERE doc_id = ?", (response.json()["id"],)
+    ).fetchall()
+    assert chunk_rows == [("Hello world.\n",)]
+
+
+def test_add_document_fails_a_malformed_docx(client, conn):
+    # A malformed .docx is stored but fails to parse, so it isn't searchable and
+    # must not be reported as ready. It must not stay 'pending' either: a client
+    # polls until the status is terminal, and would wait on it forever.
     response = client.post(
         "/documents",
         files={
@@ -158,7 +193,7 @@ def test_add_document_fails_a_document_it_cannot_chunk(client, conn):
         "SELECT status, error FROM documents WHERE id = ?", (response.json()["id"],)
     ).fetchone()
     assert status == "failed"
-    assert ".docx" in error
+    assert error
 
 
 def test_add_document_rejects_unsupported_file_type(client):
@@ -284,7 +319,7 @@ def test_get_document_reports_the_failure_reason(client):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "failed"
-    assert ".docx" in body["error"]
+    assert body["error"]
 
 
 def test_get_document_404s_for_an_unknown_id(client):

@@ -4,6 +4,7 @@ import subprocess
 import sys
 import uuid
 
+import docx
 import fitz
 import pytest
 import tiktoken
@@ -12,7 +13,7 @@ from oracle.common.db import apply_migrations
 from oracle.common.ingest import (
     CHUNK_ENCODING_NAME,
     UnsupportedFileTypeError,
-    chunk_pdf,
+    chunk_document,
     ingest_file,
     process_document,
     stage_file,
@@ -37,6 +38,13 @@ def _write_pdf(path, pages_of_paragraphs, page_height=842):
             y += 20 * (paragraph.count("\n") + 1) + 20
     doc.save(path)
     doc.close()
+
+
+def _write_docx(path, paragraphs):
+    document = docx.Document()
+    for paragraph in paragraphs:
+        document.add_paragraph(paragraph)
+    document.save(path)
 
 
 @pytest.mark.parametrize("suffix", [".pdf", ".PDF"])
@@ -116,14 +124,14 @@ def test_process_document_records_failure_instead_of_raising(tmp_path, conn):
     assert error == result.error
 
 
-def test_ingest_file_fails_a_document_it_cannot_chunk(tmp_path, conn):
+def test_ingest_file_fails_a_malformed_docx(tmp_path, conn):
     source = tmp_path / "source.docx"
     source.write_bytes(b"file contents")
 
     result = ingest_file(conn, source, uploads_dir=tmp_path / "uploads")
 
     assert result.status == "failed"
-    assert result.error is not None and ".docx" in result.error
+    assert result.error
     status = conn.execute(
         "SELECT status FROM documents WHERE id = ?", (result.doc_id,)
     ).fetchone()[0]
@@ -134,7 +142,7 @@ def test_ingest_file_re_adding_a_failed_document_resets_it_to_pending(tmp_path, 
     # The failure and its reason belong to a specific upload, so a replacement
     # must not inherit them while it waits to be chunked.
     source = tmp_path / "source.docx"
-    source.write_bytes(b"file contents")
+    source.write_bytes(b"not a real docx")
     failed = ingest_file(conn, source, uploads_dir=tmp_path / "uploads")
 
     staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
@@ -246,7 +254,76 @@ def test_ingest_file_records_document_and_chunks(tmp_path, conn):
     assert chunk_row == (result.doc_id, 0, "Hello world.\n")
 
 
-def test_chunk_pdf_splits_long_document_into_multiple_chunks(tmp_path, conn):
+def test_process_document_marks_a_chunked_docx_ready(tmp_path, conn):
+    source = tmp_path / "source.docx"
+    _write_docx(source, ["Hello world."])
+    staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    result = process_document(conn, staged.doc_id, staged.destination_path)
+
+    assert result.status == "ready"
+    assert result.error is None
+    chunk_row = conn.execute(
+        "SELECT text, page_number FROM chunks WHERE doc_id = ?", (staged.doc_id,)
+    ).fetchone()
+    assert chunk_row == ("Hello world.\n", None)
+
+
+def test_chunk_document_splits_long_docx_into_multiple_chunks(tmp_path, conn):
+    source = tmp_path / "long.docx"
+    encoding = tiktoken.get_encoding(CHUNK_ENCODING_NAME)
+    # Unique numbered paragraphs make it possible to verify overlap precisely,
+    # rather than incidentally matching on repeated filler text.
+    paragraphs = [f"Paragraph {i:04d} filler filler filler filler." for i in range(200)]
+    _write_docx(source, paragraphs)
+
+    doc_id = conn.execute(
+        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes) "
+        "VALUES ('long.docx', 'stored.docx', "
+        "'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1)"
+    ).lastrowid
+    conn.commit()
+
+    chunk_count = chunk_document(conn, doc_id, source)
+
+    rows = conn.execute(
+        "SELECT seq, text, page_number, paragraph_start, paragraph_end, "
+        "char_start, char_end FROM chunks WHERE doc_id = ? ORDER BY seq",
+        (doc_id,),
+    ).fetchall()
+
+    assert chunk_count == len(rows)
+    assert chunk_count > 1
+
+    for seq, text, page_number, paragraph_start, paragraph_end, char_start, char_end in rows:
+        token_count = len(encoding.encode(text))
+        assert token_count >= 800 or seq == chunk_count - 1
+        assert page_number is None
+        assert paragraph_start <= paragraph_end
+        assert char_start < char_end
+
+
+def test_chunk_document_returns_zero_for_blank_docx(tmp_path, conn):
+    source = tmp_path / "blank.docx"
+    _write_docx(source, [])
+
+    doc_id = conn.execute(
+        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes) "
+        "VALUES ('blank.docx', 'stored.docx', "
+        "'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1)"
+    ).lastrowid
+    conn.commit()
+
+    chunk_count = chunk_document(conn, doc_id, source)
+
+    assert chunk_count == 0
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (doc_id,)
+    ).fetchone()[0]
+    assert remaining == 0
+
+
+def test_chunk_document_splits_long_pdf_into_multiple_chunks(tmp_path, conn):
     source = tmp_path / "long.pdf"
     encoding = tiktoken.get_encoding(CHUNK_ENCODING_NAME)
     # Unique numbered lines make it possible to verify overlap precisely,
@@ -268,7 +345,7 @@ def test_chunk_pdf_splits_long_document_into_multiple_chunks(tmp_path, conn):
     ).lastrowid
     conn.commit()
 
-    chunk_count = chunk_pdf(conn, doc_id, source)
+    chunk_count = chunk_document(conn, doc_id, source)
 
     rows = conn.execute(
         "SELECT seq, text, page_number, paragraph_start, paragraph_end, "
@@ -305,7 +382,7 @@ def test_chunk_pdf_splits_long_document_into_multiple_chunks(tmp_path, conn):
         ]
 
 
-def test_chunk_pdf_returns_zero_for_blank_pdf(tmp_path, conn):
+def test_chunk_document_returns_zero_for_blank_pdf(tmp_path, conn):
     source = tmp_path / "blank.pdf"
     doc = fitz.open()
     doc.new_page()
@@ -318,7 +395,7 @@ def test_chunk_pdf_returns_zero_for_blank_pdf(tmp_path, conn):
     ).lastrowid
     conn.commit()
 
-    chunk_count = chunk_pdf(conn, doc_id, source)
+    chunk_count = chunk_document(conn, doc_id, source)
 
     assert chunk_count == 0
     remaining = conn.execute(
