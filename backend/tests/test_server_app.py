@@ -11,6 +11,7 @@ from oracle.server.app import (
     get_connection,
     get_connection_factory,
     get_uploads_dir,
+    get_vector_index,
 )
 
 
@@ -30,10 +31,13 @@ def conn(db_path):
 
 
 @pytest.fixture
-def client(conn, db_path, tmp_path):
+def client(conn, db_path, tmp_path, vector_index):
     uploads_dir = tmp_path / "uploads"
     app.dependency_overrides[get_connection] = lambda: conn
     app.dependency_overrides[get_uploads_dir] = lambda: uploads_dir
+    # A fake embedder plus an in-memory Chroma collection: real vector search
+    # without the model download that get_default_vector_index would trigger.
+    app.dependency_overrides[get_vector_index] = lambda: vector_index
     # The background task must open its own connection, exactly as it does in
     # production — but to this test's database, not the real one. Overriding this
     # is what keeps a test upload from chunking into data/oracle.db.
@@ -202,34 +206,36 @@ def test_list_documents_returns_uploaded_documents(client):
     ]
 
 
-def test_search_returns_matching_chunks(client):
+def test_search_returns_bm25_and_vector_matches_tagged_with_their_source(client):
     uploaded = _upload(client, "source.pdf", ["The quick brown fox."])
 
     response = client.post("/search", json={"query": "brown fox"})
 
     assert response.status_code == 200
     results = response.json()["results"]
-    assert len(results) == 1
-    assert results[0]["doc_id"] == uploaded.json()["id"]
-    assert results[0]["filename"] == "source.pdf"
-    assert results[0]["seq"] == 0
-    assert results[0]["page_number"] == 1
-    assert "quick brown fox" in results[0]["text"]
+    # The one chunk matches by keyword and is also the nearest vector, so it
+    # comes back once per index.
+    assert [result["source"] for result in results] == ["bm25", "vector"]
+    for result in results:
+        assert result["doc_id"] == uploaded.json()["id"]
+        assert result["filename"] == "source.pdf"
+        assert result["seq"] == 0
+        assert result["page_number"] == 1
+        assert "quick brown fox" in result["text"]
 
 
-def test_search_returns_no_results_for_non_matching_query(client):
+def test_search_without_keyword_match_still_returns_nearest_vectors(client):
     _upload(client, "source.pdf", ["The quick brown fox."])
 
     response = client.post("/search", json={"query": "elephant"})
 
     assert response.status_code == 200
-    assert response.json() == {"results": []}
+    results = response.json()["results"]
+    assert [result["source"] for result in results] == ["vector"]
 
 
-def test_search_returns_no_results_for_query_of_only_stop_words(client):
-    _upload(client, "source.pdf", ["The quick brown fox."])
-
-    response = client.post("/search", json={"query": "the and of"})
+def test_search_returns_no_results_when_nothing_is_indexed(client):
+    response = client.post("/search", json={"query": "elephant"})
 
     assert response.status_code == 200
     assert response.json() == {"results": []}

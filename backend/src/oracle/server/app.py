@@ -11,7 +11,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from oracle.common import db, documents, ingest, search
+from oracle.common import db, documents, embeddings, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
 
 
@@ -23,6 +23,9 @@ def allowed_origins() -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.run_migrations()
+    # Downloads the embedding model on the very first startup; after that it
+    # loads from the cache dir.
+    embeddings.get_default_vector_index()
     yield
 
 
@@ -53,11 +56,16 @@ def get_connection_factory() -> Callable[[], sqlite3.Connection]:
     return db.get_connection
 
 
+def get_vector_index() -> embeddings.VectorIndex:
+    return embeddings.get_default_vector_index()
+
+
 Connection = Annotated[sqlite3.Connection, Depends(get_connection)]
 UploadsDir = Annotated[Path, Depends(get_uploads_dir)]
 ConnectionFactory = Annotated[
     Callable[[], sqlite3.Connection], Depends(get_connection_factory)
 ]
+VectorIndexDep = Annotated[embeddings.VectorIndex, Depends(get_vector_index)]
 
 
 class DocumentResponse(BaseModel):
@@ -85,6 +93,7 @@ class SearchResultResponse(BaseModel):
     seq: int
     text: str
     page_number: int | None
+    source: str
 
 
 class SearchResponse(BaseModel):
@@ -98,12 +107,13 @@ def health() -> dict[str, str]:
 
 def process_document_in_background(
     connection_factory: Callable[[], sqlite3.Connection],
+    vector_index: embeddings.VectorIndex,
     doc_id: int,
     stored_path: Path,
 ) -> None:
     conn = connection_factory()
     try:
-        ingest.process_document(conn, doc_id, stored_path)
+        ingest.process_document(conn, doc_id, stored_path, vector_index=vector_index)
     finally:
         conn.close()
 
@@ -113,6 +123,7 @@ def add_document(
     conn: Connection,
     uploads_dir: UploadsDir,
     connection_factory: ConnectionFactory,
+    vector_index: VectorIndexDep,
     background_tasks: BackgroundTasks,
     file: UploadFile,
 ) -> UploadResponse:
@@ -127,13 +138,16 @@ def add_document(
             shutil.copyfileobj(file.file, staged_file)
 
         try:
-            staged = ingest.stage_file(conn, staged_path, uploads_dir=uploads_dir)
+            staged = ingest.stage_file(
+                conn, staged_path, uploads_dir=uploads_dir, vector_index=vector_index
+            )
         except UnsupportedFileTypeError as exc:
             raise HTTPException(status_code=415, detail=str(exc))
 
     background_tasks.add_task(
         process_document_in_background,
         connection_factory,
+        vector_index,
         staged.doc_id,
         staged.destination_path,
     )
@@ -175,8 +189,10 @@ def get_document(conn: Connection, document_id: int) -> DocumentResponse:
 
 
 @app.post("/search")
-def search_documents(conn: Connection, request: SearchRequest) -> SearchResponse:
-    results = search.search_chunks(conn, request.query)
+def search_documents(
+    conn: Connection, vector_index: VectorIndexDep, request: SearchRequest
+) -> SearchResponse:
+    results = search.search_hybrid(conn, vector_index, request.query)
     return SearchResponse(
         results=[
             SearchResultResponse(
@@ -186,6 +202,7 @@ def search_documents(conn: Connection, request: SearchRequest) -> SearchResponse
                 seq=result.seq,
                 text=result.text,
                 page_number=result.page_number,
+                source=result.source,
             )
             for result in results
         ]

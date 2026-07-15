@@ -327,6 +327,62 @@ def test_chunk_pdf_returns_zero_for_blank_pdf(tmp_path, conn):
     assert remaining == 0
 
 
+def test_process_document_indexes_chunk_vectors(tmp_path, conn, vector_index):
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    process_document(
+        conn, staged.doc_id, staged.destination_path, vector_index=vector_index
+    )
+
+    chunk_id = conn.execute(
+        "SELECT id FROM chunks WHERE doc_id = ?", (staged.doc_id,)
+    ).fetchone()[0]
+    matches = vector_index.search("hello world", limit=10)
+    assert [match.chunk_id for match in matches] == [chunk_id]
+
+
+def test_ingest_file_replacement_removes_stale_vectors(tmp_path, conn, vector_index):
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    uploads_dir = tmp_path / "uploads"
+    ingest_file(conn, source, uploads_dir=uploads_dir, vector_index=vector_index)
+
+    _write_pdf(source, [["Goodbye world."]])
+    second = ingest_file(
+        conn, source, uploads_dir=uploads_dir, vector_index=vector_index
+    )
+
+    current_chunk_ids = {
+        row[0]
+        for row in conn.execute(
+            "SELECT id FROM chunks WHERE doc_id = ?", (second.doc_id,)
+        )
+    }
+    matches = vector_index.search("world", limit=10)
+    assert {match.chunk_id for match in matches} == current_chunk_ids
+
+
+def test_process_document_records_an_embedding_failure(
+    tmp_path, conn, vector_index, monkeypatch
+):
+    def explode(doc_id, chunks):
+        raise RuntimeError("embedding blew up")
+
+    monkeypatch.setattr(vector_index, "index_chunks", explode)
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
+
+    result = process_document(
+        conn, staged.doc_id, staged.destination_path, vector_index=vector_index
+    )
+
+    assert result.status == "failed"
+    assert result.error is not None and "embedding blew up" in result.error
+
+
 def test_uploads_dir_can_be_overridden_by_environment(tmp_path):
     result = subprocess.run(
         [

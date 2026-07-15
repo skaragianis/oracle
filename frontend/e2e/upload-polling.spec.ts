@@ -37,7 +37,7 @@ test('a pending upload becomes ready on its own, with no reload', async ({ page 
   await upload(page, LARGE_PDF)
 
   await expect(row(page, 'large.pdf').getByText('pending')).toBeVisible()
-  await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 20_000 })
+  await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 60_000 })
 })
 
 test('the uploader clears its staging row once the upload completes', async ({ page }) => {
@@ -50,7 +50,7 @@ test('the uploader clears its staging row once the upload completes', async ({ p
   await page.getByRole('button', { name: 'Upload' }).click()
 
   await expect(uploader.getByText('large.pdf')).toBeHidden()
-  await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 20_000 })
+  await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 60_000 })
 })
 
 test('a document that cannot be chunked ends failed, and says why', async ({ page }) => {
@@ -68,10 +68,10 @@ test('a document that cannot be chunked ends failed, and says why', async ({ pag
 test('a document found pending on load is polled to completion', async ({ page }) => {
   await page.goto('/')
   await upload(page, LARGE_PDF)
-  await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 20_000 })
+  await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 60_000 })
 
   await arrivesPending(page, 'large.pdf')
   await page.reload()
 
-  await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 20_000 })
+  await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 60_000 })
 })

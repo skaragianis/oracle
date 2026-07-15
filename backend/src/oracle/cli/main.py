@@ -1,9 +1,10 @@
 import argparse
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
 
-from oracle.common import db, documents, ingest, search
+from oracle.common import db, documents, embeddings, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
 
 
@@ -71,15 +72,20 @@ def _reset() -> None:
         db.DEFAULT_DB_PATH.unlink()
     if ingest.DEFAULT_UPLOADS_DIR.exists():
         ingest.remove_document_uploads()
+    shutil.rmtree(embeddings.DEFAULT_VECTOR_DB_PATH, ignore_errors=True)
     print(
-        f"Reset database at {db.DEFAULT_DB_PATH} and removed documents at {ingest.DEFAULT_UPLOADS_DIR}"
+        f"Reset database at {db.DEFAULT_DB_PATH}, removed documents at "
+        f"{ingest.DEFAULT_UPLOADS_DIR} and vectors at {embeddings.DEFAULT_VECTOR_DB_PATH}"
     )
 
 
 def _add(conn: sqlite3.Connection, file_path: str) -> None:
     source_path = Path(file_path)
     result = ingest.ingest_file(
-        conn, source_path, uploads_dir=ingest.DEFAULT_UPLOADS_DIR
+        conn,
+        source_path,
+        uploads_dir=ingest.DEFAULT_UPLOADS_DIR,
+        vector_index=embeddings.open_vector_index(),
     )
     verb = "Re-added" if result.replaced else "Added"
     print(f"{verb} {file_path} -> {result.destination_path}")
@@ -100,12 +106,12 @@ def _list(conn: sqlite3.Connection) -> None:
 
 
 def _search(conn: sqlite3.Connection, query: str) -> None:
-    results = search.search_chunks(conn, query)
+    results = search.search_hybrid(conn, embeddings.open_vector_index(), query)
     if not results:
         print("No results found.")
         return
     for result in results:
-        print(f"[{result.doc_id}] {result.filename} (chunk {result.seq})")
+        print(f"[{result.doc_id}] {result.filename} (chunk {result.seq}) [{result.source}]")
         print(result.text[:80])
         print()
     print(f"{len(results)} result chunks found.")

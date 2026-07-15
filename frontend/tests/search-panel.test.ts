@@ -23,6 +23,7 @@ const RESULTS: SearchResult[] = [
     seq: 0,
     text: 'the quick brown fox',
     page_number: 4,
+    source: 'bm25',
   },
   {
     doc_id: 2,
@@ -31,6 +32,7 @@ const RESULTS: SearchResult[] = [
     seq: 1,
     text: 'a slow brown bear',
     page_number: null,
+    source: 'vector',
   },
 ]
 
@@ -66,6 +68,31 @@ describe('SearchPanel', () => {
     expect(cards[0].text()).toContain('the quick brown fox')
     // The second result has no page number, so no page is claimed for it.
     expect(cards[1].text()).not.toContain('page')
+  })
+
+  it('labels each result with the index it came from', async () => {
+    searchMock.mockResolvedValue(RESULTS)
+    const wrapper = mountPanel()
+
+    await runSearch(wrapper)
+
+    const tags = wrapper.findAll('.p-card .p-tag')
+    expect(tags.map((tag) => tag.text())).toEqual(['BM25', 'Vector'])
+  })
+
+  it('renders a chunk returned by both indexes once per index', async () => {
+    searchMock.mockResolvedValue([
+      RESULTS[0],
+      { ...RESULTS[0], source: 'vector' },
+    ])
+    const wrapper = mountPanel()
+
+    await runSearch(wrapper)
+
+    const cards = wrapper.findAll('.p-card')
+    expect(cards).toHaveLength(2)
+    const tags = wrapper.findAll('.p-card .p-tag')
+    expect(tags.map((tag) => tag.text())).toEqual(['BM25', 'Vector'])
   })
 
   it('limits results to the selected documents', async () => {

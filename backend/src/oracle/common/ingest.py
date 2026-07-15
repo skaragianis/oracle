@@ -18,6 +18,7 @@ from oracle.common.documents import (
     mark_document_ready,
     replace_document_upload,
 )
+from oracle.common.embeddings import ChunkToIndex, VectorIndex
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ def stage_file(
     conn: sqlite3.Connection,
     source_path: str | Path,
     uploads_dir: Path = DEFAULT_UPLOADS_DIR,
+    vector_index: VectorIndex | None = None,
 ) -> StagedDocument:
     source_path = Path(source_path)
 
@@ -86,6 +88,8 @@ def stage_file(
     if existing is not None:
         doc_id, previous_stored_filename = existing
         delete_chunks_for_document(conn, doc_id)
+        if vector_index is not None:
+            vector_index.delete_document(doc_id)
         replace_document_upload(
             conn,
             doc_id,
@@ -111,7 +115,10 @@ def stage_file(
 
 
 def process_document(
-    conn: sqlite3.Connection, doc_id: int, stored_path: str | Path
+    conn: sqlite3.Connection,
+    doc_id: int,
+    stored_path: str | Path,
+    vector_index: VectorIndex | None = None,
 ) -> ProcessResult:
     stored_path = Path(stored_path)
     suffix = stored_path.suffix.lower()
@@ -123,8 +130,10 @@ def process_document(
 
     try:
         chunk_pdf(conn, doc_id, stored_path)
+        if vector_index is not None:
+            embed_document_chunks(conn, doc_id, vector_index)
     except Exception as exc:
-        logger.exception("Failed to chunk document %s at %s", doc_id, stored_path)
+        logger.exception("Failed to process document %s at %s", doc_id, stored_path)
         error = f"{type(exc).__name__}: {exc}"
         mark_document_failed(conn, doc_id, error)
         return ProcessResult(status="failed", error=error)
@@ -133,13 +142,29 @@ def process_document(
     return ProcessResult(status="ready", error=None)
 
 
+def embed_document_chunks(
+    conn: sqlite3.Connection, doc_id: int, vector_index: VectorIndex
+) -> None:
+    rows = conn.execute(
+        "SELECT id, text FROM chunks WHERE doc_id = ? ORDER BY seq", (doc_id,)
+    ).fetchall()
+    vector_index.index_chunks(
+        doc_id, [ChunkToIndex(chunk_id=row[0], text=row[1]) for row in rows]
+    )
+
+
 def ingest_file(
     conn: sqlite3.Connection,
     source_path: str | Path,
     uploads_dir: Path = DEFAULT_UPLOADS_DIR,
+    vector_index: VectorIndex | None = None,
 ) -> IngestResult:
-    staged = stage_file(conn, source_path, uploads_dir=uploads_dir)
-    processed = process_document(conn, staged.doc_id, staged.destination_path)
+    staged = stage_file(
+        conn, source_path, uploads_dir=uploads_dir, vector_index=vector_index
+    )
+    processed = process_document(
+        conn, staged.doc_id, staged.destination_path, vector_index=vector_index
+    )
 
     return IngestResult(
         doc_id=staged.doc_id,

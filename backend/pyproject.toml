@@ -5,7 +5,9 @@ description = "Use LLM's to ask questions of provided documents"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "chromadb>=1.5.9",
     "fastapi>=0.139.0",
+    "fastembed>=0.8.0",
     "pymupdf>=1.28.0",
     "python-multipart>=0.0.32",
     "tiktoken>=0.13.0",

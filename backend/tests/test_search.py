@@ -5,11 +5,14 @@ import pytest
 from oracle.common.chunks import create_chunk
 from oracle.common.db import apply_migrations
 from oracle.common.documents import create_document
+from oracle.common.embeddings import ChunkToIndex
 from oracle.common.search import (
     SearchResult,
     build_fts_query,
     escape_fts_query,
     search_chunks,
+    search_hybrid,
+    search_vectors,
 )
 
 
@@ -46,6 +49,7 @@ def test_search_chunks_finds_matching_chunk_with_document(conn):
             seq=0,
             text="the quick brown fox",
             page_number=3,
+            source="bm25",
         )
     ]
 
@@ -142,3 +146,109 @@ def test_build_fts_query_returns_none_for_empty_input():
 
 def test_build_fts_query_escapes_special_characters_per_term():
     assert build_fts_query("10.1 fox") == '"10.1" OR "fox"'
+
+
+def _create_indexed_chunks(conn, vector_index, texts, filename="report.pdf"):
+    doc_id = create_document(
+        conn,
+        filename=filename,
+        stored_filename=f"uuid-{filename}",
+        mime_type="application/pdf",
+        size_bytes=10,
+    )
+    chunks = [
+        ChunkToIndex(
+            chunk_id=create_chunk(conn, doc_id=doc_id, seq=seq, text=text), text=text
+        )
+        for seq, text in enumerate(texts)
+    ]
+    vector_index.index_chunks(doc_id, chunks)
+    return doc_id, chunks
+
+
+def test_search_chunks_limits_results(conn):
+    doc_id = create_document(
+        conn,
+        filename="report.pdf",
+        stored_filename="uuid-report.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+    )
+    for seq in range(15):
+        create_chunk(conn, doc_id=doc_id, seq=seq, text=f"fox sighting number {seq}")
+
+    assert len(search_chunks(conn, "fox")) == 10
+    assert len(search_chunks(conn, "fox", limit=3)) == 3
+
+
+def test_search_vectors_returns_nearest_chunks_with_source(conn, vector_index):
+    doc_id, chunks = _create_indexed_chunks(
+        conn,
+        vector_index,
+        ["the quick brown fox", "annual financial revenue report"],
+    )
+
+    results = search_vectors(conn, vector_index, "quick fox")
+
+    assert [result.chunk_id for result in results] == [
+        chunks[0].chunk_id,
+        chunks[1].chunk_id,
+    ]
+    assert results[0] == SearchResult(
+        doc_id=doc_id,
+        filename="report.pdf",
+        chunk_id=chunks[0].chunk_id,
+        seq=0,
+        text="the quick brown fox",
+        page_number=None,
+        source="vector",
+    )
+
+
+def test_search_vectors_returns_empty_for_blank_query(conn, vector_index):
+    _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
+
+    assert search_vectors(conn, vector_index, "   ") == []
+
+
+def test_search_vectors_limits_results(conn, vector_index):
+    _create_indexed_chunks(
+        conn, vector_index, [f"fox sighting number {i}" for i in range(15)]
+    )
+
+    assert len(search_vectors(conn, vector_index, "fox")) == 10
+    assert len(search_vectors(conn, vector_index, "fox", limit=3)) == 3
+
+
+def test_search_vectors_drops_chunks_missing_from_the_database(conn, vector_index):
+    doc_id, chunks = _create_indexed_chunks(
+        conn, vector_index, ["the quick brown fox"]
+    )
+    conn.execute("DELETE FROM chunks WHERE id = ?", (chunks[0].chunk_id,))
+    conn.commit()
+
+    assert search_vectors(conn, vector_index, "quick fox") == []
+
+
+def test_search_hybrid_returns_bm25_then_vector_results(conn, vector_index):
+    _, chunks = _create_indexed_chunks(
+        conn,
+        vector_index,
+        ["the quick brown fox", "annual financial revenue report"],
+    )
+
+    results = search_hybrid(conn, vector_index, "fox")
+
+    bm25 = [result for result in results if result.source == "bm25"]
+    vector = [result for result in results if result.source == "vector"]
+    assert results == bm25 + vector
+    assert [result.chunk_id for result in bm25] == [chunks[0].chunk_id]
+    # Vector search always returns the nearest chunks, matching keywords or not.
+    assert [result.chunk_id for result in vector] == [
+        chunks[0].chunk_id,
+        chunks[1].chunk_id,
+    ]
+
+
+def test_search_hybrid_returns_empty_when_nothing_is_indexed(conn, vector_index):
+    assert search_hybrid(conn, vector_index, "anything") == []

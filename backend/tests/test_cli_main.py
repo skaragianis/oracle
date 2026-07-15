@@ -3,9 +3,19 @@ import sys
 
 import fitz
 import pytest
+from conftest import make_vector_index
 
 from oracle.cli.main import main
-from oracle.common import db, ingest
+from oracle.common import db, embeddings, ingest
+
+
+@pytest.fixture(autouse=True)
+def fake_embeddings(tmp_path, monkeypatch):
+    """Keep CLI runs away from the real model download and the real vector db."""
+    index = make_vector_index()
+    monkeypatch.setattr(embeddings, "open_vector_index", lambda: index)
+    monkeypatch.setattr(embeddings, "DEFAULT_VECTOR_DB_PATH", tmp_path / "vectors")
+    return index
 
 
 def test_main_runs_with_no_args_prints_usage(tmp_path, capsys, monkeypatch):
@@ -121,6 +131,9 @@ def test_main_reset_removes_existing_database_and_uploads(
     main()
     uploads_dir.mkdir()
     (uploads_dir / "stored.pdf").write_bytes(b"data")
+    vector_db_path = embeddings.DEFAULT_VECTOR_DB_PATH
+    vector_db_path.mkdir()
+    (vector_db_path / "chroma.sqlite3").write_bytes(b"data")
     assert db_path.exists()
 
     monkeypatch.setattr(sys, "argv", ["oracle-cli", "--reset"])
@@ -130,6 +143,7 @@ def test_main_reset_removes_existing_database_and_uploads(
     assert "Reset database" in captured.out
     assert not db_path.exists()
     assert list(uploads_dir.iterdir()) == []
+    assert not vector_db_path.exists()
 
 
 def test_main_reset_is_a_noop_when_nothing_exists(tmp_path, capsys, monkeypatch):
@@ -205,7 +219,8 @@ def test_main_search_prints_matching_document_and_chunk(tmp_path, capsys, monkey
     main()
 
     captured = capsys.readouterr()
-    assert "[1] report.pdf (chunk 0)" in captured.out
+    assert "[1] report.pdf (chunk 0) [bm25]" in captured.out
+    assert "[1] report.pdf (chunk 0) [vector]" in captured.out
     assert "The quick brown fox." in captured.out
 
 

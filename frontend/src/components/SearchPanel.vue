@@ -5,8 +5,20 @@ import Button from 'primevue/button'
 import Card from 'primevue/card'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
+import Tag from 'primevue/tag'
 
-import { ApiError, search, type OracleDocument, type SearchResult } from '../api'
+import {
+  ApiError,
+  search,
+  type OracleDocument,
+  type SearchResult,
+  type SearchSource,
+} from '../api'
+
+const SOURCE_LABELS: Record<SearchSource, string> = {
+  bm25: 'BM25',
+  vector: 'Vector',
+}
 
 const props = defineProps<{ selected: OracleDocument[] }>()
 
@@ -72,11 +84,18 @@ async function runSearch() {
       <p v-if="scopedResults.length === 0" class="search-empty">No matches found.</p>
 
       <ol v-else class="results">
-        <li v-for="result in scopedResults" :key="result.chunk_id">
+        <!-- The same chunk can come back from both indexes, so the key needs the source too. -->
+        <li v-for="result in scopedResults" :key="`${result.source}-${result.chunk_id}`">
           <Card>
             <template #subtitle>
-              {{ result.filename }}
-              <span v-if="result.page_number !== null">— page {{ result.page_number }}</span>
+              <span class="result-subtitle">
+                <Tag
+                  :value="SOURCE_LABELS[result.source]"
+                  :severity="result.source === 'bm25' ? 'secondary' : 'info'"
+                />
+                {{ result.filename }}
+                <span v-if="result.page_number !== null">— page {{ result.page_number }}</span>
+              </span>
             </template>
             <template #content>
               <p class="snippet">{{ result.text }}</p>
@@ -112,6 +131,12 @@ async function runSearch() {
   margin: 1rem 0 0;
   padding: 0;
   list-style: none;
+}
+
+.result-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .snippet {

@@ -33,10 +33,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY --from=frontend-build /build/dist /app/frontend/dist
 
-# The database and uploads are one dataset — keep both under /data so a
-# single volume covers them.
 ENV ORACLE_DB_PATH=/data/oracle.db \
-    ORACLE_UPLOADS_DIR=/data/uploads
+    ORACLE_UPLOADS_DIR=/data/uploads \
+    ORACLE_VECTOR_DB_PATH=/data/vectors \
+    ORACLE_MODEL_CACHE_DIR=/data/models
 VOLUME /data
 
 COPY <<'EOF' /etc/nginx/conf.d/oracle.conf

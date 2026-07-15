@@ -25,6 +25,8 @@ export interface UploadResult {
   status: DocumentStatus
 }
 
+export type SearchSource = 'bm25' | 'vector'
+
 export interface SearchResult {
   doc_id: number
   filename: string
@@ -32,6 +34,7 @@ export interface SearchResult {
   seq: number
   text: string
   page_number: number | null
+  source: SearchSource
 }
 
 export class ApiError extends Error { }
