@@ -1,9 +1,12 @@
 import sqlite3
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 
 from oracle.common.embeddings import VectorIndex
 
 RESULTS_PER_INDEX = 10
+FUSED_RESULT_LIMIT = 5
+RRF_K = 60
 
 STOP_WORDS = frozenset(
     {
@@ -52,7 +55,7 @@ class SearchResult:
     seq: int
     text: str
     page_number: int | None
-    source: str
+    sources: list[str]
 
 
 def build_fts_query(user_input: str) -> str | None:
@@ -125,7 +128,32 @@ def search_vectors(
 def search_hybrid(
     conn: sqlite3.Connection, vector_index: VectorIndex, query: str
 ) -> list[SearchResult]:
-    return search_chunks(conn, query) + search_vectors(conn, vector_index, query)
+    return reciprocal_rank_fusion(
+        [search_chunks(conn, query), search_vectors(conn, vector_index, query)]
+    )
+
+
+def reciprocal_rank_fusion(
+    rankings: Sequence[list[SearchResult]],
+    k: int = RRF_K,
+    limit: int = FUSED_RESULT_LIMIT,
+) -> list[SearchResult]:
+    scores: dict[int, float] = {}
+    fused: dict[int, SearchResult] = {}
+    for ranking in rankings:
+        for rank, result in enumerate(ranking, start=1):
+            scores[result.chunk_id] = scores.get(result.chunk_id, 0.0) + 1 / (k + rank)
+            if result.chunk_id in fused:
+                merged = fused[result.chunk_id].sources + result.sources
+                fused[result.chunk_id] = replace(
+                    fused[result.chunk_id], sources=merged
+                )
+            else:
+                fused[result.chunk_id] = result
+    ordered = sorted(
+        fused.values(), key=lambda result: (-scores[result.chunk_id], result.chunk_id)
+    )
+    return ordered[:limit]
 
 
 def _row_to_result(row: sqlite3.Row | tuple, *, source: str) -> SearchResult:
@@ -136,5 +164,5 @@ def _row_to_result(row: sqlite3.Row | tuple, *, source: str) -> SearchResult:
         seq=row[3],
         text=row[4],
         page_number=row[5],
-        source=source,
+        sources=[source],
     )

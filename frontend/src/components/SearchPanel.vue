@@ -84,14 +84,15 @@ async function runSearch() {
       <p v-if="scopedResults.length === 0" class="search-empty">No matches found.</p>
 
       <ol v-else class="results">
-        <!-- The same chunk can come back from both indexes, so the key needs the source too. -->
-        <li v-for="result in scopedResults" :key="`${result.source}-${result.chunk_id}`">
+        <li v-for="result in scopedResults" :key="result.chunk_id">
           <Card>
             <template #subtitle>
               <span class="result-subtitle">
                 <Tag
-                  :value="SOURCE_LABELS[result.source]"
-                  :severity="result.source === 'bm25' ? 'secondary' : 'info'"
+                  v-for="source in result.sources"
+                  :key="source"
+                  :value="SOURCE_LABELS[source]"
+                  :severity="source === 'bm25' ? 'secondary' : 'info'"
                 />
                 {{ result.filename }}
                 <span v-if="result.page_number !== null">— page {{ result.page_number }}</span>

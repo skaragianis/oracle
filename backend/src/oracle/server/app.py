@@ -93,7 +93,7 @@ class SearchResultResponse(BaseModel):
     seq: int
     text: str
     page_number: int | None
-    source: str
+    sources: list[str]
 
 
 class SearchResponse(BaseModel):
@@ -202,7 +202,7 @@ def search_documents(
                 seq=result.seq,
                 text=result.text,
                 page_number=result.page_number,
-                source=result.source,
+                sources=result.sources,
             )
             for result in results
         ]

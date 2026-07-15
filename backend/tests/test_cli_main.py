@@ -219,8 +219,7 @@ def test_main_search_prints_matching_document_and_chunk(tmp_path, capsys, monkey
     main()
 
     captured = capsys.readouterr()
-    assert "[1] report.pdf (chunk 0) [bm25]" in captured.out
-    assert "[1] report.pdf (chunk 0) [vector]" in captured.out
+    assert "[1] report.pdf (chunk 0) [bm25+vector]" in captured.out
     assert "The quick brown fox." in captured.out
 
 

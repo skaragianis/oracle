@@ -206,22 +206,34 @@ def test_list_documents_returns_uploaded_documents(client):
     ]
 
 
-def test_search_returns_bm25_and_vector_matches_tagged_with_their_source(client):
+def test_search_fuses_bm25_and_vector_matches_into_one_result(client):
     uploaded = _upload(client, "source.pdf", ["The quick brown fox."])
 
     response = client.post("/search", json={"query": "brown fox"})
 
     assert response.status_code == 200
     results = response.json()["results"]
-    # The one chunk matches by keyword and is also the nearest vector, so it
-    # comes back once per index.
-    assert [result["source"] for result in results] == ["bm25", "vector"]
-    for result in results:
-        assert result["doc_id"] == uploaded.json()["id"]
-        assert result["filename"] == "source.pdf"
-        assert result["seq"] == 0
-        assert result["page_number"] == 1
-        assert "quick brown fox" in result["text"]
+    # The one chunk matches by keyword and is also the nearest vector; RRF
+    # fuses those two hits into a single result carrying both sources.
+    assert len(results) == 1
+    assert results[0]["sources"] == ["bm25", "vector"]
+    assert results[0]["doc_id"] == uploaded.json()["id"]
+    assert results[0]["filename"] == "source.pdf"
+    assert results[0]["seq"] == 0
+    assert results[0]["page_number"] == 1
+    assert "quick brown fox" in results[0]["text"]
+
+
+def test_search_returns_at_most_five_fused_results(client):
+    # Eight documents, not eight paragraphs: short paragraphs would buffer into
+    # a single chunk and the cap would pass vacuously.
+    for i in range(8):
+        _upload(client, f"source{i}.pdf", [f"The fox sighting number {i}."])
+
+    response = client.post("/search", json={"query": "fox"})
+
+    assert response.status_code == 200
+    assert len(response.json()["results"]) == 5
 
 
 def test_search_without_keyword_match_still_returns_nearest_vectors(client):
@@ -231,7 +243,7 @@ def test_search_without_keyword_match_still_returns_nearest_vectors(client):
 
     assert response.status_code == 200
     results = response.json()["results"]
-    assert [result["source"] for result in results] == ["vector"]
+    assert [result["sources"] for result in results] == [["vector"]]
 
 
 def test_search_returns_no_results_when_nothing_is_indexed(client):

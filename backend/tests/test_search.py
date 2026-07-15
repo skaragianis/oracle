@@ -10,6 +10,7 @@ from oracle.common.search import (
     SearchResult,
     build_fts_query,
     escape_fts_query,
+    reciprocal_rank_fusion,
     search_chunks,
     search_hybrid,
     search_vectors,
@@ -49,7 +50,7 @@ def test_search_chunks_finds_matching_chunk_with_document(conn):
             seq=0,
             text="the quick brown fox",
             page_number=3,
-            source="bm25",
+            sources=["bm25"],
         )
     ]
 
@@ -201,7 +202,7 @@ def test_search_vectors_returns_nearest_chunks_with_source(conn, vector_index):
         seq=0,
         text="the quick brown fox",
         page_number=None,
-        source="vector",
+        sources=["vector"],
     )
 
 
@@ -230,7 +231,7 @@ def test_search_vectors_drops_chunks_missing_from_the_database(conn, vector_inde
     assert search_vectors(conn, vector_index, "quick fox") == []
 
 
-def test_search_hybrid_returns_bm25_then_vector_results(conn, vector_index):
+def test_search_hybrid_fuses_both_indexes_and_merges_sources(conn, vector_index):
     _, chunks = _create_indexed_chunks(
         conn,
         vector_index,
@@ -239,16 +240,63 @@ def test_search_hybrid_returns_bm25_then_vector_results(conn, vector_index):
 
     results = search_hybrid(conn, vector_index, "fox")
 
-    bm25 = [result for result in results if result.source == "bm25"]
-    vector = [result for result in results if result.source == "vector"]
-    assert results == bm25 + vector
-    assert [result.chunk_id for result in bm25] == [chunks[0].chunk_id]
-    # Vector search always returns the nearest chunks, matching keywords or not.
-    assert [result.chunk_id for result in vector] == [
+    # Chunk 0 matches by keyword and is the nearest vector, so it fuses to the
+    # top with both sources; chunk 1 is vector-only (nearest-neighbour, no
+    # keyword match) and ranks below it.
+    assert [result.chunk_id for result in results] == [
         chunks[0].chunk_id,
         chunks[1].chunk_id,
     ]
+    assert results[0].sources == ["bm25", "vector"]
+    assert results[1].sources == ["vector"]
+
+
+def test_search_hybrid_returns_at_most_five_results(conn, vector_index):
+    _create_indexed_chunks(
+        conn, vector_index, [f"fox sighting number {i}" for i in range(8)]
+    )
+
+    results = search_hybrid(conn, vector_index, "fox")
+
+    assert len(results) == 5
 
 
 def test_search_hybrid_returns_empty_when_nothing_is_indexed(conn, vector_index):
     assert search_hybrid(conn, vector_index, "anything") == []
+
+
+def _result(chunk_id, sources):
+    return SearchResult(
+        doc_id=1,
+        filename="report.pdf",
+        chunk_id=chunk_id,
+        seq=0,
+        text=f"chunk {chunk_id}",
+        page_number=None,
+        sources=sources,
+    )
+
+
+def test_rrf_ranks_a_chunk_found_by_both_indexes_above_single_index_winners():
+    bm25 = [_result(1, ["bm25"]), _result(3, ["bm25"])]
+    vector = [_result(2, ["vector"]), _result(3, ["vector"])]
+
+    fused = reciprocal_rank_fusion([bm25, vector])
+
+    # Chunk 3 scores 2/(k+2), beating both rank-1 chunks at 1/(k+1).
+    assert [result.chunk_id for result in fused] == [3, 1, 2]
+    assert fused[0].sources == ["bm25", "vector"]
+
+
+def test_rrf_breaks_score_ties_by_chunk_id():
+    fused = reciprocal_rank_fusion([[_result(2, ["bm25"])], [_result(1, ["vector"])]])
+
+    assert [result.chunk_id for result in fused] == [1, 2]
+
+
+def test_rrf_respects_the_limit():
+    bm25 = [_result(i, ["bm25"]) for i in range(10)]
+
+    fused = reciprocal_rank_fusion([bm25], limit=5)
+
+    assert [result.chunk_id for result in fused] == [0, 1, 2, 3, 4]

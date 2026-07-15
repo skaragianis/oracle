@@ -34,7 +34,7 @@ export interface SearchResult {
   seq: number
   text: string
   page_number: number | null
-  source: SearchSource
+  sources: SearchSource[]
 }
 
 export class ApiError extends Error { }

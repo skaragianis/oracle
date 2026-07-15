@@ -111,7 +111,8 @@ def _search(conn: sqlite3.Connection, query: str) -> None:
         print("No results found.")
         return
     for result in results:
-        print(f"[{result.doc_id}] {result.filename} (chunk {result.seq}) [{result.source}]")
+        sources = "+".join(result.sources)
+        print(f"[{result.doc_id}] {result.filename} (chunk {result.seq}) [{sources}]")
         print(result.text[:80])
         print()
     print(f"{len(results)} result chunks found.")
