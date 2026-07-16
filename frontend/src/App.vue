@@ -14,6 +14,9 @@ const error = ref<string | null>(null)
 
 const polls = new AbortController()
 const watched = new Set<number>()
+// Ids the user deleted while their poll was still in flight: the poll's next
+// request 404s, which is expected, not a failure worth showing.
+const deleted = new Set<number>()
 
 async function refresh() {
   loading.value = true
@@ -48,13 +51,22 @@ function watchPending() {
       .then(settle)
       .catch((exception) => {
         if (exception instanceof DOMException && exception.name === 'AbortError') return
+        if (deleted.has(document.id)) return
         error.value =
           exception instanceof ApiError
             ? exception.message
             : `Could not get the status of ${document.filename}.`
       })
-      .finally(() => watched.delete(document.id))
+      .finally(() => {
+        watched.delete(document.id)
+        deleted.delete(document.id)
+      })
   }
+}
+
+function handleDeleted(id: number) {
+  deleted.add(id)
+  refresh()
 }
 
 function settle(settled: OracleDocument) {
@@ -82,6 +94,7 @@ onUnmounted(() => polls.abort())
       v-model:selection="selected"
       :documents="documents"
       :loading="loading"
+      @deleted="handleDeleted"
     />
 
     <SearchPanel :selected="selected" />

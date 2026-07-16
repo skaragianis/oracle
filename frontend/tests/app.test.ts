@@ -4,12 +4,19 @@ import PrimeVue from 'primevue/config'
 import Aura from '@primevue/themes/aura'
 
 import App from '../src/App.vue'
-import { listDocuments, waitForDocument, type OracleDocument } from '../src/api'
+import {
+  ApiError,
+  deleteDocument,
+  listDocuments,
+  waitForDocument,
+  type OracleDocument,
+} from '../src/api'
 
 vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api')>()),
   listDocuments: vi.fn(),
   waitForDocument: vi.fn(),
+  deleteDocument: vi.fn(),
 }))
 
 const PENDING: OracleDocument = {
@@ -37,6 +44,7 @@ function statuses(wrapper: ReturnType<typeof mountApp>) {
 beforeEach(() => {
   vi.mocked(listDocuments).mockReset()
   vi.mocked(waitForDocument).mockReset()
+  vi.mocked(deleteDocument).mockReset()
 })
 
 describe('App', () => {
@@ -69,6 +77,31 @@ describe('App', () => {
     await flushPromises()
 
     expect(waitForDocument).not.toHaveBeenCalled()
+  })
+
+  it('does not surface an error when a document is deleted mid-poll', async () => {
+    vi.mocked(listDocuments)
+      .mockResolvedValueOnce([PENDING])
+      .mockResolvedValueOnce([])
+    let rejectPoll: (error: unknown) => void = () => {}
+    vi.mocked(waitForDocument).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectPoll = reject
+      }),
+    )
+    vi.mocked(deleteDocument).mockResolvedValue(undefined)
+
+    const wrapper = mountApp()
+    await flushPromises()
+
+    await wrapper.find('tbody button').trigger('click')
+    await flushPromises()
+
+    // The still-running poll for the now-deleted document catches up and 404s.
+    rejectPoll(new ApiError('Document not found'))
+    await flushPromises()
+
+    expect(wrapper.find('.p-message').exists()).toBe(false)
   })
 
   it('stops polling when the view goes away', async () => {

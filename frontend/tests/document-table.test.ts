@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import Aura from '@primevue/themes/aura'
 
 import DocumentTable from '../src/components/DocumentTable.vue'
-import type { OracleDocument } from '../src/api'
+import * as api from '../src/api'
+import { ApiError, type OracleDocument } from '../src/api'
 
 const READY: OracleDocument = { id: 1, filename: 'ready.pdf', status: 'ready', error: null }
 const PENDING: OracleDocument = {
@@ -26,6 +27,10 @@ function latestSelection(wrapper: ReturnType<typeof mountTable>) {
   const emitted = wrapper.emitted('update:selection')
   return emitted?.[emitted.length - 1]?.[0]
 }
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('DocumentTable', () => {
   it('shows a spinner instead of the table while loading', () => {
@@ -72,6 +77,28 @@ describe('DocumentTable', () => {
     await wrapper.find('thead input.p-checkbox-input').trigger('change')
 
     expect(latestSelection(wrapper)).toEqual([READY])
+  })
+
+  it('deletes a document and emits deleted on success', async () => {
+    const deleteDocument = vi.spyOn(api, 'deleteDocument').mockResolvedValue(undefined)
+    const wrapper = mountTable()
+
+    await wrapper.findAll('tbody button')[0].trigger('click')
+    await flushPromises()
+
+    expect(deleteDocument).toHaveBeenCalledWith(READY.id)
+    expect(wrapper.emitted('deleted')).toEqual([[READY.id]])
+  })
+
+  it('shows an error and does not emit deleted when deletion fails', async () => {
+    vi.spyOn(api, 'deleteDocument').mockRejectedValue(new ApiError('Document not found'))
+    const wrapper = mountTable()
+
+    await wrapper.findAll('tbody button')[0].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Document not found')
+    expect(wrapper.emitted('deleted')).toBeUndefined()
   })
 
   it('shows why a failed document is not searchable', () => {

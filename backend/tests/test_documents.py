@@ -7,6 +7,7 @@ from oracle.common.db import apply_migrations
 from oracle.common.documents import (
     Document,
     create_document,
+    delete_document,
     list_documents,
     mark_document_failed,
     mark_document_ready,
@@ -108,3 +109,28 @@ def test_list_documents_returns_id_filename_and_status_ordered_by_id(
         Document(id=first_id, filename="a.pdf", status="pending"),
         Document(id=second_id, filename="b.pdf", status="pending"),
     ]
+
+
+def test_document_ids_are_not_reused_after_deleting_the_only_document(
+    conn: sqlite3.Connection,
+) -> None:
+    """A plain INTEGER PRIMARY KEY would reuse this id, letting a stale
+    client-held id silently refer to a different, later document."""
+    first_id = create_document(
+        conn,
+        filename="a.pdf",
+        stored_filename="uuid-a.pdf",
+        mime_type="application/pdf",
+        size_bytes=10,
+    )
+    delete_document(conn, first_id)
+
+    second_id = create_document(
+        conn,
+        filename="b.pdf",
+        stored_filename="uuid-b.pdf",
+        mime_type="application/pdf",
+        size_bytes=20,
+    )
+
+    assert second_id != first_id

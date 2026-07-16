@@ -57,6 +57,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     )
   }
 
+  // 204 (delete) has no body to parse.
+  if (response.status === 204) return undefined as T
+
   return response.json() as Promise<T>
 }
 
@@ -72,6 +75,10 @@ export function uploadDocument(file: File): Promise<UploadResult> {
   const body = new FormData()
   body.append('file', file)
   return request<UploadResult>('/documents', { method: 'POST', body })
+}
+
+export function deleteDocument(id: number): Promise<void> {
+  return request<void>(`/documents/${id}`, { method: 'DELETE' })
 }
 
 const POLL_BASE_DELAY_MS = 500

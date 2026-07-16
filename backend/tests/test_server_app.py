@@ -1,5 +1,7 @@
 import io
 import sqlite3
+import threading
+import time
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -9,9 +11,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from oracle.common import ingest
 from oracle.common.db import apply_migrations
 from oracle.common.embeddings import VectorIndex
 from oracle.server.app import (
+    _process_document_in_background,
     allowed_origins,
     app,
     get_connection,
@@ -231,6 +235,48 @@ def test_add_document_requires_a_file(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_background_processing_serializes_concurrent_uploads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two large uploads processed at once is what OOM-killed the server;
+    background ingestion must never overlap regardless of how many uploads
+    arrive together."""
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def fake_process_document(
+        conn: object, doc_id: int, stored_path: Path, *, vector_index: object
+    ) -> None:
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+
+    monkeypatch.setattr(ingest, "process_document", fake_process_document)
+
+    class _NullConnection:
+        def close(self) -> None:
+            pass
+
+    threads = [
+        threading.Thread(
+            target=_process_document_in_background,
+            args=(_NullConnection, None, doc_id, Path("unused")),
+        )
+        for doc_id in (1, 2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert max_active == 1
+
+
 def test_list_documents_is_empty_without_uploads(client: TestClient) -> None:
     response = client.get("/documents")
 
@@ -348,5 +394,29 @@ def test_get_document_reports_the_failure_reason(client: TestClient) -> None:
 
 def test_get_document_404s_for_an_unknown_id(client: TestClient) -> None:
     response = client.get("/documents/999")
+
+    assert response.status_code == 404
+
+
+def test_delete_document_removes_document_upload_and_chunks(
+    client: TestClient, conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    uploaded = _upload(client, "source.pdf")
+    doc_id = uploaded.json()["id"]
+
+    response = client.delete(f"/documents/{doc_id}")
+
+    assert response.status_code == 204
+    assert conn.execute(
+        "SELECT COUNT(*) FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone()[0] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (doc_id,)
+    ).fetchone()[0] == 0
+    assert list((tmp_path / "uploads").iterdir()) == []
+
+
+def test_delete_document_404s_for_an_unknown_id(client: TestClient) -> None:
+    response = client.delete("/documents/999")
 
     assert response.status_code == 404

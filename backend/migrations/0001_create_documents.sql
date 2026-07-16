@@ -1,5 +1,5 @@
 CREATE TABLE documents (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     filename TEXT NOT NULL,
     stored_filename TEXT NOT NULL,
     mime_type TEXT NOT NULL,

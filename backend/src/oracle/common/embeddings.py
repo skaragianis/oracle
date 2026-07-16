@@ -11,6 +11,8 @@ from oracle.common.db import PACKAGE_ROOT
 EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 COLLECTION_NAME = "chunks"
 
+EMBED_BATCH_SIZE = 16
+
 DEFAULT_VECTOR_DB_PATH = Path(
     os.environ.get("ORACLE_VECTOR_DB_PATH") or PACKAGE_ROOT / "data" / "vectors"
 )
@@ -22,7 +24,9 @@ DEFAULT_MODEL_CACHE_DIR = Path(
 class Embedder(Protocol):
     def query_embed(self, query: str) -> Iterable[Any]: ...
 
-    def passage_embed(self, texts: Iterable[str]) -> Iterable[Any]: ...
+    def passage_embed(
+        self, texts: Iterable[str], **kwargs: object
+    ) -> Iterable[Any]: ...
 
 
 @dataclass
@@ -45,7 +49,9 @@ class VectorIndex:
     def index_chunks(self, doc_id: int, chunks: Sequence[ChunkToIndex]) -> None:
         if not chunks:
             return
-        embeddings = self._embedder.passage_embed(chunk.text for chunk in chunks)
+        embeddings = self._embedder.passage_embed(
+            (chunk.text for chunk in chunks), batch_size=EMBED_BATCH_SIZE
+        )
         self._collection.upsert(
             ids=[str(chunk.chunk_id) for chunk in chunks],
             embeddings=[[float(value) for value in vector] for vector in embeddings],

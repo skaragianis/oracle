@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, listDocuments, search, uploadDocument, waitForDocument } from '../src/api'
+import {
+  ApiError,
+  deleteDocument,
+  listDocuments,
+  search,
+  uploadDocument,
+  waitForDocument,
+} from '../src/api'
 
 function mockFetch(response: Partial<Response> & { json?: () => Promise<unknown> }) {
   const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, ...response })
@@ -64,6 +71,14 @@ describe('api', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     await expect(listDocuments()).rejects.toThrow(ApiError)
+  })
+
+  it('deletes a document with a DELETE request and no body to parse', async () => {
+    const fetchMock = mockFetch({ status: 204, json: async () => { throw new Error('no body') } })
+
+    await deleteDocument(1)
+
+    expect(fetchMock.mock.calls[0]).toEqual(['/api/documents/1', { method: 'DELETE' }])
   })
 })
 

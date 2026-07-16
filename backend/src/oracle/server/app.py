@@ -2,6 +2,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -105,17 +106,24 @@ def _health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# Used to serialise concurrent upload processing
+_ingest_slot = threading.Semaphore(1)
+
+
 def _process_document_in_background(
     connection_factory: Callable[[], sqlite3.Connection],
     vector_index: embeddings.VectorIndex,
     doc_id: int,
     stored_path: Path,
 ) -> None:
-    conn = connection_factory()
-    try:
-        ingest.process_document(conn, doc_id, stored_path, vector_index=vector_index)
-    finally:
-        conn.close()
+    with _ingest_slot:
+        conn = connection_factory()
+        try:
+            ingest.process_document(
+                conn, doc_id, stored_path, vector_index=vector_index
+            )
+        finally:
+            conn.close()
 
 
 @app.post("/documents", status_code=202)
@@ -186,6 +194,20 @@ def _get_document(conn: Connection, document_id: int) -> DocumentResponse:
         status=document.status,
         error=document.error,
     )
+
+
+@app.delete("/documents/{document_id}", status_code=204)
+def _delete_document(
+    conn: Connection,
+    uploads_dir: UploadsDir,
+    vector_index: VectorIndexDep,
+    document_id: int,
+) -> None:
+    deleted = ingest.delete_document(
+        conn, document_id, uploads_dir=uploads_dir, vector_index=vector_index
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found")
 
 
 @app.post("/search")

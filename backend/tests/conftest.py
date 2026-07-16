@@ -23,7 +23,10 @@ class FakeEmbedder:
     def query_embed(self, query: str) -> Iterator[list[float]]:
         yield self._embed(query)
 
-    def passage_embed(self, texts: Iterable[str]) -> Iterator[list[float]]:
+    def passage_embed(
+        self, texts: Iterable[str], **kwargs: object
+    ) -> Iterator[list[float]]:
+        del kwargs
         for text in texts:
             yield self._embed(text)
 
