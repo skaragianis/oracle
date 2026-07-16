@@ -120,7 +120,7 @@ def process_document(
     try:
         chunk_document(conn, doc_id, stored_path)
         if vector_index is not None:
-            embed_document_chunks(conn, doc_id, vector_index)
+            _embed_document_chunks(conn, doc_id, vector_index)
     except Exception as exc:
         logger.exception("Failed to process document %s at %s", doc_id, stored_path)
         error = f"{type(exc).__name__}: {exc}"
@@ -131,7 +131,7 @@ def process_document(
     return ProcessResult(status="ready", error=None)
 
 
-def embed_document_chunks(
+def _embed_document_chunks(
     conn: sqlite3.Connection, doc_id: int, vector_index: embeddings.VectorIndex
 ) -> None:
     rows = conn.execute(

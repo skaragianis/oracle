@@ -21,7 +21,7 @@ def allowed_origins() -> list[str]:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     db.run_migrations()
     # Downloads the embedding model on the very first startup; after that it
     # loads from the cache dir.
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=_lifespan)
 
 if origins := allowed_origins():
     app.add_middleware(
@@ -101,11 +101,11 @@ class SearchResponse(BaseModel):
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def _health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def process_document_in_background(
+def _process_document_in_background(
     connection_factory: Callable[[], sqlite3.Connection],
     vector_index: embeddings.VectorIndex,
     doc_id: int,
@@ -119,7 +119,7 @@ def process_document_in_background(
 
 
 @app.post("/documents", status_code=202)
-def add_document(
+def _add_document(
     conn: Connection,
     uploads_dir: UploadsDir,
     connection_factory: ConnectionFactory,
@@ -145,7 +145,7 @@ def add_document(
             raise HTTPException(status_code=415, detail=str(exc))
 
     background_tasks.add_task(
-        process_document_in_background,
+        _process_document_in_background,
         connection_factory,
         vector_index,
         staged.doc_id,
@@ -161,7 +161,7 @@ def add_document(
 
 
 @app.get("/documents")
-def list_documents(conn: Connection) -> list[DocumentResponse]:
+def _list_documents(conn: Connection) -> list[DocumentResponse]:
     return [
         DocumentResponse(
             id=document.id,
@@ -174,7 +174,7 @@ def list_documents(conn: Connection) -> list[DocumentResponse]:
 
 
 @app.get("/documents/{document_id}")
-def get_document(conn: Connection, document_id: int) -> DocumentResponse:
+def _get_document(conn: Connection, document_id: int) -> DocumentResponse:
     """Polled by clients waiting for a pending document to reach a terminal status."""
     document = documents.get_document(conn, document_id)
     if document is None:
@@ -189,7 +189,7 @@ def get_document(conn: Connection, document_id: int) -> DocumentResponse:
 
 
 @app.post("/search")
-def search_documents(
+def _search_documents(
     conn: Connection, vector_index: VectorIndexDep, request: SearchRequest
 ) -> SearchResponse:
     results = search.search_hybrid(conn, vector_index, request.query)
