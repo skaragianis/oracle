@@ -13,19 +13,7 @@ import docx
 import fitz
 import tiktoken
 
-from oracle.common.chunks import create_chunk, delete_chunks_for_document
-from oracle.common.documents import (
-    create_document,
-    find_document_by_filename,
-    get_stored_filename,
-    mark_document_failed,
-    mark_document_ready,
-    replace_document_upload,
-)
-from oracle.common.documents import (
-    delete_document as delete_document_row,
-)
-from oracle.common.embeddings import ChunkToIndex, VectorIndex
+from oracle.common import chunks, documents, embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +59,7 @@ def stage_file(
     conn: sqlite3.Connection,
     source_path: str | Path,
     uploads_dir: Path = DEFAULT_UPLOADS_DIR,
-    vector_index: VectorIndex | None = None,
+    vector_index: embeddings.VectorIndex | None = None,
 ) -> StagedDocument:
     source_path = Path(source_path)
 
@@ -84,7 +72,7 @@ def stage_file(
     if not source_path.is_file():
         raise FileNotFoundError(source_path)
 
-    existing = find_document_by_filename(conn, source_path.name)
+    existing = documents.find_document_by_filename(conn, source_path.name)
 
     uploads_dir.mkdir(parents=True, exist_ok=True)
     destination_path = uploads_dir / f"{uuid.uuid4()}{source_path.suffix.lower()}"
@@ -94,10 +82,10 @@ def stage_file(
 
     if existing is not None:
         doc_id, previous_stored_filename = existing
-        delete_chunks_for_document(conn, doc_id)
+        chunks.delete_chunks_for_document(conn, doc_id)
         if vector_index is not None:
             vector_index.delete_document(doc_id)
-        replace_document_upload(
+        documents.replace_document_upload(
             conn,
             doc_id,
             stored_filename=destination_path.name,
@@ -106,7 +94,7 @@ def stage_file(
         )
         (uploads_dir / previous_stored_filename).unlink(missing_ok=True)
     else:
-        doc_id = create_document(
+        doc_id = documents.create_document(
             conn,
             filename=source_path.name,
             stored_filename=destination_path.name,
@@ -125,7 +113,7 @@ def process_document(
     conn: sqlite3.Connection,
     doc_id: int,
     stored_path: str | Path,
-    vector_index: VectorIndex | None = None,
+    vector_index: embeddings.VectorIndex | None = None,
 ) -> ProcessResult:
     stored_path = Path(stored_path)
 
@@ -136,21 +124,22 @@ def process_document(
     except Exception as exc:
         logger.exception("Failed to process document %s at %s", doc_id, stored_path)
         error = f"{type(exc).__name__}: {exc}"
-        mark_document_failed(conn, doc_id, error)
+        documents.mark_document_failed(conn, doc_id, error)
         return ProcessResult(status="failed", error=error)
 
-    mark_document_ready(conn, doc_id)
+    documents.mark_document_ready(conn, doc_id)
     return ProcessResult(status="ready", error=None)
 
 
 def embed_document_chunks(
-    conn: sqlite3.Connection, doc_id: int, vector_index: VectorIndex
+    conn: sqlite3.Connection, doc_id: int, vector_index: embeddings.VectorIndex
 ) -> None:
     rows = conn.execute(
         "SELECT id, text FROM chunks WHERE doc_id = ? ORDER BY seq", (doc_id,)
     ).fetchall()
     vector_index.index_chunks(
-        doc_id, [ChunkToIndex(chunk_id=row[0], text=row[1]) for row in rows]
+        doc_id,
+        [embeddings.ChunkToIndex(chunk_id=row[0], text=row[1]) for row in rows],
     )
 
 
@@ -158,7 +147,7 @@ def ingest_file(
     conn: sqlite3.Connection,
     source_path: str | Path,
     uploads_dir: Path = DEFAULT_UPLOADS_DIR,
-    vector_index: VectorIndex | None = None,
+    vector_index: embeddings.VectorIndex | None = None,
 ) -> IngestResult:
     staged = stage_file(
         conn, source_path, uploads_dir=uploads_dir, vector_index=vector_index
@@ -266,7 +255,7 @@ def _chunk_lines(
             return
 
         first, last = buffer[0], buffer[-1]
-        create_chunk(
+        chunks.create_chunk(
             conn,
             doc_id=doc_id,
             seq=seq,
@@ -320,15 +309,15 @@ def delete_document(
     conn: sqlite3.Connection,
     doc_id: int,
     uploads_dir: Path = DEFAULT_UPLOADS_DIR,
-    vector_index: VectorIndex | None = None,
+    vector_index: embeddings.VectorIndex | None = None,
 ) -> bool:
-    stored_filename = get_stored_filename(conn, doc_id)
+    stored_filename = documents.get_stored_filename(conn, doc_id)
     if stored_filename is None:
         return False
-    delete_chunks_for_document(conn, doc_id)
+    chunks.delete_chunks_for_document(conn, doc_id)
     if vector_index is not None:
         vector_index.delete_document(doc_id)
-    delete_document_row(conn, doc_id)
+    documents.delete_document(conn, doc_id)
     (uploads_dir / stored_filename).unlink(missing_ok=True)
     return True
 
