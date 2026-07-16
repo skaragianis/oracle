@@ -252,6 +252,49 @@ def test_main_search_with_only_stop_words_prints_no_results(
     assert "No results found." in captured.out
 
 
+def test_main_delete_removes_upload_document_and_chunks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "report.pdf"
+    pdf_doc = fitz.open()
+    pdf_doc.new_page().insert_text((72, 72), "Hello world.")
+    pdf_doc.save(source)
+    pdf_doc.close()
+    uploads_dir = tmp_path / "uploads"
+    db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--add", str(source)])
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--delete", "1"])
+    main()
+
+    captured = capsys.readouterr()
+    assert "Deleted document 1" in captured.out
+    assert list(uploads_dir.iterdir()) == []
+
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0] == 0
+
+
+def test_main_delete_missing_document_prints_friendly_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "-d", "1"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error: no document found with id 1" in captured.err
+
+
 def test_main_add_unsupported_extension_prints_friendly_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -33,6 +33,13 @@ def main() -> None:
         metavar="QUERY",
         help="Search document chunks based on provided terms",
     )
+    parser.add_argument(
+        "--delete",
+        "-d",
+        metavar="DOC_ID",
+        type=int,
+        help="Delete a document by id",
+    )
     args = parser.parse_args()
 
     if args.reset:
@@ -49,6 +56,9 @@ def main() -> None:
             return
         if args.search:
             _search(conn, args.search)
+            return
+        if args.delete is not None:  # --delete 0 is falsy but still a passed value
+            _delete(conn, args.delete)
             return
         parser.print_usage()
     except FileNotFoundError as exc:
@@ -117,6 +127,19 @@ def _search(conn: sqlite3.Connection, query: str) -> None:
         print(result.text[:80])
         print()
     print(f"{len(results)} result chunks found.")
+
+
+def _delete(conn: sqlite3.Connection, doc_id: int) -> None:
+    deleted = ingest.delete_document(
+        conn,
+        doc_id,
+        uploads_dir=ingest.DEFAULT_UPLOADS_DIR,
+        vector_index=embeddings.open_vector_index(),
+    )
+    if not deleted:
+        print(f"Error: no document found with id {doc_id}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"Deleted document {doc_id}")
 
 
 if __name__ == "__main__":

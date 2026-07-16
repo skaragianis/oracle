@@ -17,9 +17,13 @@ from oracle.common.chunks import create_chunk, delete_chunks_for_document
 from oracle.common.documents import (
     create_document,
     find_document_by_filename,
+    get_stored_filename,
     mark_document_failed,
     mark_document_ready,
     replace_document_upload,
+)
+from oracle.common.documents import (
+    delete_document as delete_document_row,
 )
 from oracle.common.embeddings import ChunkToIndex, VectorIndex
 
@@ -310,6 +314,23 @@ def _chunk_lines(
 
     flush()
     return seq
+
+
+def delete_document(
+    conn: sqlite3.Connection,
+    doc_id: int,
+    uploads_dir: Path = DEFAULT_UPLOADS_DIR,
+    vector_index: VectorIndex | None = None,
+) -> bool:
+    stored_filename = get_stored_filename(conn, doc_id)
+    if stored_filename is None:
+        return False
+    delete_chunks_for_document(conn, doc_id)
+    if vector_index is not None:
+        vector_index.delete_document(doc_id)
+    delete_document_row(conn, doc_id)
+    (uploads_dir / stored_filename).unlink(missing_ok=True)
+    return True
 
 
 def remove_document_uploads() -> None:

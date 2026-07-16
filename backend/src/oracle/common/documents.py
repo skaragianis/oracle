@@ -74,6 +74,18 @@ def mark_document_failed(
         )
 
 
+def get_stored_filename(conn: sqlite3.Connection, document_id: int) -> str | None:
+    row = conn.execute(
+        "SELECT stored_filename FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
+    return row[0] if row is not None else None
+
+
+def delete_document(conn: sqlite3.Connection, document_id: int) -> None:
+    with conn:
+        conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+
+
 def replace_document_upload(
     conn: sqlite3.Connection,
     document_id: int,
