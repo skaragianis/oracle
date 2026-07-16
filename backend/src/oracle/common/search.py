@@ -1,6 +1,7 @@
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import Any
 
 from oracle.common.embeddings import VectorIndex
 
@@ -156,7 +157,7 @@ def reciprocal_rank_fusion(
     return ordered[:limit]
 
 
-def _row_to_result(row: sqlite3.Row | tuple, *, source: str) -> SearchResult:
+def _row_to_result(row: sqlite3.Row | tuple[Any, ...], *, source: str) -> SearchResult:
     return SearchResult(
         doc_id=row[0],
         filename=row[1],

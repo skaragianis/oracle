@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -13,13 +14,13 @@ from oracle.common.documents import (
 
 
 @pytest.fixture
-def conn(tmp_path):
+def conn(tmp_path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(tmp_path / "test.db")
     apply_migrations(connection)
     return connection
 
 
-def test_create_document_inserts_row_with_defaults(conn):
+def test_create_document_inserts_row_with_defaults(conn: sqlite3.Connection) -> None:
     document_id = create_document(
         conn,
         filename="report.pdf",
@@ -44,7 +45,7 @@ def test_create_document_inserts_row_with_defaults(conn):
     )
 
 
-def test_mark_document_failed_records_the_reason(conn):
+def test_mark_document_failed_records_the_reason(conn: sqlite3.Connection) -> None:
     doc_id = create_document(
         conn,
         filename="a.pdf",
@@ -60,7 +61,9 @@ def test_mark_document_failed_records_the_reason(conn):
     ).fetchone() == ("failed", "Broken PDF.")
 
 
-def test_mark_document_ready_clears_a_previous_failure(conn):
+def test_mark_document_ready_clears_a_previous_failure(
+    conn: sqlite3.Connection,
+) -> None:
     doc_id = create_document(
         conn,
         filename="a.pdf",
@@ -77,11 +80,15 @@ def test_mark_document_ready_clears_a_previous_failure(conn):
     ).fetchone() == ("ready", None)
 
 
-def test_list_documents_returns_empty_list_when_no_documents(conn):
+def test_list_documents_returns_empty_list_when_no_documents(
+    conn: sqlite3.Connection,
+) -> None:
     assert list_documents(conn) == []
 
 
-def test_list_documents_returns_id_filename_and_status_ordered_by_id(conn):
+def test_list_documents_returns_id_filename_and_status_ordered_by_id(
+    conn: sqlite3.Connection,
+) -> None:
     first_id = create_document(
         conn,
         filename="a.pdf",

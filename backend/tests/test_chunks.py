@@ -1,4 +1,5 @@
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -8,14 +9,14 @@ from oracle.common.documents import create_document
 
 
 @pytest.fixture
-def conn(tmp_path):
+def conn(tmp_path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(tmp_path / "test.db")
     apply_migrations(connection)
     return connection
 
 
 @pytest.fixture
-def doc_id(conn):
+def doc_id(conn: sqlite3.Connection) -> int:
     return create_document(
         conn,
         filename="report.pdf",
@@ -25,7 +26,9 @@ def doc_id(conn):
     )
 
 
-def test_create_chunk_inserts_row_with_defaults(conn, doc_id):
+def test_create_chunk_inserts_row_with_defaults(
+    conn: sqlite3.Connection, doc_id: int
+) -> None:
     chunk_id = create_chunk(conn, doc_id=doc_id, seq=0, text="hello world")
 
     row = conn.execute(
@@ -37,7 +40,9 @@ def test_create_chunk_inserts_row_with_defaults(conn, doc_id):
     assert row == (doc_id, 0, "hello world", None, None, None, None, None)
 
 
-def test_create_chunk_inserts_row_with_optional_fields(conn, doc_id):
+def test_create_chunk_inserts_row_with_optional_fields(
+    conn: sqlite3.Connection, doc_id: int
+) -> None:
     chunk_id = create_chunk(
         conn,
         doc_id=doc_id,

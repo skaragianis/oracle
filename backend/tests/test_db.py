@@ -3,11 +3,12 @@ import sqlite3
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from oracle.common.db import apply_migrations, get_connection, run_migrations
 
 
-def test_apply_migrations_creates_schema_migrations_table(tmp_path):
+def test_apply_migrations_creates_schema_migrations_table(tmp_path: Path) -> None:
     conn = sqlite3.connect(tmp_path / "test.db")
 
     apply_migrations(conn, migrations_dir=tmp_path / "migrations")
@@ -18,7 +19,7 @@ def test_apply_migrations_creates_schema_migrations_table(tmp_path):
     assert table is not None
 
 
-def test_apply_migrations_runs_pending_sql_files_in_order(tmp_path):
+def test_apply_migrations_runs_pending_sql_files_in_order(tmp_path: Path) -> None:
     migrations_dir = tmp_path / "migrations"
     migrations_dir.mkdir()
     (migrations_dir / "0001_create_widgets.sql").write_text(
@@ -37,7 +38,7 @@ def test_apply_migrations_runs_pending_sql_files_in_order(tmp_path):
     assert row == ("foo",)
 
 
-def test_apply_migrations_skips_already_applied(tmp_path):
+def test_apply_migrations_skips_already_applied(tmp_path: Path) -> None:
     migrations_dir = tmp_path / "migrations"
     migrations_dir.mkdir()
     (migrations_dir / "0001_create_widgets.sql").write_text(
@@ -51,7 +52,7 @@ def test_apply_migrations_skips_already_applied(tmp_path):
     assert second_run == []
 
 
-def test_apply_migrations_with_no_migrations_dir(tmp_path):
+def test_apply_migrations_with_no_migrations_dir(tmp_path: Path) -> None:
     conn = sqlite3.connect(tmp_path / "test.db")
 
     applied = apply_migrations(conn, migrations_dir=tmp_path / "does-not-exist")
@@ -59,7 +60,7 @@ def test_apply_migrations_with_no_migrations_dir(tmp_path):
     assert applied == []
 
 
-def test_get_connection_creates_parent_dir(tmp_path):
+def test_get_connection_creates_parent_dir(tmp_path: Path) -> None:
     db_path = tmp_path / "nested" / "test.db"
 
     conn = get_connection(db_path)
@@ -68,13 +69,13 @@ def test_get_connection_creates_parent_dir(tmp_path):
     assert db_path.parent.exists()
 
 
-def test_get_connection_enables_foreign_keys(tmp_path):
+def test_get_connection_enables_foreign_keys(tmp_path: Path) -> None:
     conn = get_connection(tmp_path / "test.db")
 
     assert conn.execute("PRAGMA foreign_keys").fetchone() == (1,)
 
 
-def test_chunks_cascade_delete_on_document_removal(tmp_path):
+def test_chunks_cascade_delete_on_document_removal(tmp_path: Path) -> None:
     conn = get_connection(tmp_path / "test.db")
     apply_migrations(conn)
 
@@ -92,7 +93,7 @@ def test_chunks_cascade_delete_on_document_removal(tmp_path):
     assert remaining == 0
 
 
-def test_chunks_fts_insert_trigger_mirrors_new_chunk(tmp_path):
+def test_chunks_fts_insert_trigger_mirrors_new_chunk(tmp_path: Path) -> None:
     conn = get_connection(tmp_path / "test.db")
     apply_migrations(conn)
 
@@ -110,7 +111,7 @@ def test_chunks_fts_insert_trigger_mirrors_new_chunk(tmp_path):
     assert matches == [(1,)]
 
 
-def test_chunks_fts_delete_trigger_removes_deleted_chunk(tmp_path):
+def test_chunks_fts_delete_trigger_removes_deleted_chunk(tmp_path: Path) -> None:
     conn = get_connection(tmp_path / "test.db")
     apply_migrations(conn)
 
@@ -128,7 +129,7 @@ def test_chunks_fts_delete_trigger_removes_deleted_chunk(tmp_path):
     assert remaining == 0
 
 
-def test_chunks_fts_delete_trigger_fires_on_cascade_delete(tmp_path):
+def test_chunks_fts_delete_trigger_fires_on_cascade_delete(tmp_path: Path) -> None:
     conn = get_connection(tmp_path / "test.db")
     apply_migrations(conn)
 
@@ -146,7 +147,7 @@ def test_chunks_fts_delete_trigger_fires_on_cascade_delete(tmp_path):
     assert remaining == 0
 
 
-def test_project_migrations_create_documents_table(tmp_path):
+def test_project_migrations_create_documents_table(tmp_path: Path) -> None:
     conn = sqlite3.connect(tmp_path / "test.db")
 
     apply_migrations(conn)
@@ -164,7 +165,7 @@ def test_project_migrations_create_documents_table(tmp_path):
     }
 
 
-def test_project_migrations_create_chunks_table(tmp_path):
+def test_project_migrations_create_chunks_table(tmp_path: Path) -> None:
     conn = sqlite3.connect(tmp_path / "test.db")
 
     apply_migrations(conn)
@@ -188,7 +189,7 @@ def test_project_migrations_create_chunks_table(tmp_path):
     assert index is not None
 
 
-def test_run_migrations_applies_and_persists(tmp_path):
+def test_run_migrations_applies_and_persists(tmp_path: Path) -> None:
     migrations_dir = tmp_path / "migrations"
     migrations_dir.mkdir()
     (migrations_dir / "0001_create_widgets.sql").write_text(
@@ -206,7 +207,7 @@ def test_run_migrations_applies_and_persists(tmp_path):
     assert table is not None
 
 
-def test_get_connection_can_be_used_from_another_thread(tmp_path):
+def test_get_connection_can_be_used_from_another_thread(tmp_path: Path) -> None:
     # FastAPI opens a request's connection on one threadpool worker and may run
     # the endpoint on another, so a connection that insists on its creating
     # thread turns any upload into a 500 the moment the workers differ.
@@ -222,7 +223,7 @@ def test_get_connection_can_be_used_from_another_thread(tmp_path):
     assert result == (1,)
 
 
-def test_db_path_can_be_overridden_by_environment(tmp_path):
+def test_db_path_can_be_overridden_by_environment(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,

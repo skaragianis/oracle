@@ -1,12 +1,16 @@
 import io
 import sqlite3
+from collections.abc import Iterable, Iterator
+from pathlib import Path
 
 import docx
 import fitz
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from oracle.common.db import apply_migrations
+from oracle.common.embeddings import VectorIndex
 from oracle.server.app import (
     allowed_origins,
     app,
@@ -18,12 +22,12 @@ from oracle.server.app import (
 
 
 @pytest.fixture
-def db_path(tmp_path):
+def db_path(tmp_path: Path) -> Path:
     return tmp_path / "test.db"
 
 
 @pytest.fixture
-def conn(db_path):
+def conn(db_path: Path) -> sqlite3.Connection:
     # check_same_thread=False because one connection is shared across the whole
     # test while endpoints run on TestClient's threadpool. The app itself opens a
     # connection per request, on the thread that uses it, so it doesn't need this.
@@ -33,7 +37,9 @@ def conn(db_path):
 
 
 @pytest.fixture
-def client(conn, db_path, tmp_path, vector_index):
+def client(
+    conn: sqlite3.Connection, db_path: Path, tmp_path: Path, vector_index: VectorIndex
+) -> Iterator[TestClient]:
     uploads_dir = tmp_path / "uploads"
     app.dependency_overrides[get_connection] = lambda: conn
     app.dependency_overrides[get_uploads_dir] = lambda: uploads_dir
@@ -52,7 +58,7 @@ def client(conn, db_path, tmp_path, vector_index):
     app.dependency_overrides.clear()
 
 
-def _pdf_bytes(paragraphs):
+def _pdf_bytes(paragraphs: Iterable[str]) -> bytes:
     doc = fitz.open()
     page = doc.new_page(width=612, height=842)
     y = 72
@@ -64,14 +70,16 @@ def _pdf_bytes(paragraphs):
     return pdf_bytes
 
 
-def _upload(client, filename, paragraphs=("Hello world.",)):
+def _upload(
+    client: TestClient, filename: str, paragraphs: Iterable[str] = ("Hello world.",)
+) -> httpx.Response:
     return client.post(
         "/documents",
         files={"file": (filename, _pdf_bytes(paragraphs), "application/pdf")},
     )
 
 
-def _docx_bytes(paragraphs):
+def _docx_bytes(paragraphs: Iterable[str]) -> bytes:
     document = docx.Document()
     for paragraph in paragraphs:
         document.add_paragraph(paragraph)
@@ -80,14 +88,16 @@ def _docx_bytes(paragraphs):
     return buffer.getvalue()
 
 
-def test_allowed_origins_is_empty_when_unset(monkeypatch):
+def test_allowed_origins_is_empty_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     # The SPA is same-origin with the API by default, so no CORS is configured.
     monkeypatch.delenv("ORACLE_ALLOWED_ORIGINS", raising=False)
 
     assert allowed_origins() == []
 
 
-def test_allowed_origins_parses_a_comma_separated_list(monkeypatch):
+def test_allowed_origins_parses_a_comma_separated_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv(
         "ORACLE_ALLOWED_ORIGINS", "http://192.168.1.2:5173, http://localhost:5173"
     )
@@ -95,13 +105,15 @@ def test_allowed_origins_parses_a_comma_separated_list(monkeypatch):
     assert allowed_origins() == ["http://192.168.1.2:5173", "http://localhost:5173"]
 
 
-def test_health(client):
+def test_health(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_add_document_stores_document_and_chunks(client, conn, tmp_path):
+def test_add_document_stores_document_and_chunks(
+    client: TestClient, conn: sqlite3.Connection, tmp_path: Path
+) -> None:
     response = _upload(client, "source.pdf")
 
     # 202, not 201: the upload is accepted as 'pending' and chunked in a
@@ -125,7 +137,9 @@ def test_add_document_stores_document_and_chunks(client, conn, tmp_path):
     assert len(list((tmp_path / "uploads").iterdir())) == 1
 
 
-def test_add_document_replaces_existing_document_with_same_filename(client, conn):
+def test_add_document_replaces_existing_document_with_same_filename(
+    client: TestClient, conn: sqlite3.Connection
+) -> None:
     first = _upload(client, "source.pdf", ["Hello world."])
     second = _upload(client, "source.pdf", ["Goodbye world."])
 
@@ -139,7 +153,9 @@ def test_add_document_replaces_existing_document_with_same_filename(client, conn
     assert chunk_rows == [("Goodbye world.\n",)]
 
 
-def test_add_document_strips_path_from_client_supplied_filename(client, conn):
+def test_add_document_strips_path_from_client_supplied_filename(
+    client: TestClient, conn: sqlite3.Connection
+) -> None:
     response = client.post(
         "/documents",
         files={"file": ("../../etc/evil.pdf", _pdf_bytes(["Hi."]), "application/pdf")},
@@ -149,7 +165,9 @@ def test_add_document_strips_path_from_client_supplied_filename(client, conn):
     assert response.json()["filename"] == "evil.pdf"
 
 
-def test_add_document_chunks_a_docx(client, conn):
+def test_add_document_chunks_a_docx(
+    client: TestClient, conn: sqlite3.Connection
+) -> None:
     response = client.post(
         "/documents",
         files={
@@ -173,7 +191,9 @@ def test_add_document_chunks_a_docx(client, conn):
     assert chunk_rows == [("Hello world.\n",)]
 
 
-def test_add_document_fails_a_malformed_docx(client, conn):
+def test_add_document_fails_a_malformed_docx(
+    client: TestClient, conn: sqlite3.Connection
+) -> None:
     # A malformed .docx is stored but fails to parse, so it isn't searchable and
     # must not be reported as ready. It must not stay 'pending' either: a client
     # polls until the status is terminal, and would wait on it forever.
@@ -196,7 +216,7 @@ def test_add_document_fails_a_malformed_docx(client, conn):
     assert error
 
 
-def test_add_document_rejects_unsupported_file_type(client):
+def test_add_document_rejects_unsupported_file_type(client: TestClient) -> None:
     response = client.post(
         "/documents",
         files={"file": ("notes.txt", b"file contents", "text/plain")},
@@ -205,20 +225,20 @@ def test_add_document_rejects_unsupported_file_type(client):
     assert response.status_code == 415
 
 
-def test_add_document_requires_a_file(client):
+def test_add_document_requires_a_file(client: TestClient) -> None:
     response = client.post("/documents")
 
     assert response.status_code == 422
 
 
-def test_list_documents_is_empty_without_uploads(client):
+def test_list_documents_is_empty_without_uploads(client: TestClient) -> None:
     response = client.get("/documents")
 
     assert response.status_code == 200
     assert response.json() == []
 
 
-def test_list_documents_returns_uploaded_documents(client):
+def test_list_documents_returns_uploaded_documents(client: TestClient) -> None:
     first = _upload(client, "first.pdf")
     second = _upload(client, "second.pdf")
 
@@ -241,7 +261,9 @@ def test_list_documents_returns_uploaded_documents(client):
     ]
 
 
-def test_search_fuses_bm25_and_vector_matches_into_one_result(client):
+def test_search_fuses_bm25_and_vector_matches_into_one_result(
+    client: TestClient,
+) -> None:
     uploaded = _upload(client, "source.pdf", ["The quick brown fox."])
 
     response = client.post("/search", json={"query": "brown fox"})
@@ -259,7 +281,7 @@ def test_search_fuses_bm25_and_vector_matches_into_one_result(client):
     assert "quick brown fox" in results[0]["text"]
 
 
-def test_search_returns_at_most_five_fused_results(client):
+def test_search_returns_at_most_five_fused_results(client: TestClient) -> None:
     # Eight documents, not eight paragraphs: short paragraphs would buffer into
     # a single chunk and the cap would pass vacuously.
     for i in range(8):
@@ -271,7 +293,9 @@ def test_search_returns_at_most_five_fused_results(client):
     assert len(response.json()["results"]) == 5
 
 
-def test_search_without_keyword_match_still_returns_nearest_vectors(client):
+def test_search_without_keyword_match_still_returns_nearest_vectors(
+    client: TestClient,
+) -> None:
     _upload(client, "source.pdf", ["The quick brown fox."])
 
     response = client.post("/search", json={"query": "elephant"})
@@ -281,20 +305,20 @@ def test_search_without_keyword_match_still_returns_nearest_vectors(client):
     assert [result["sources"] for result in results] == [["vector"]]
 
 
-def test_search_returns_no_results_when_nothing_is_indexed(client):
+def test_search_returns_no_results_when_nothing_is_indexed(client: TestClient) -> None:
     response = client.post("/search", json={"query": "elephant"})
 
     assert response.status_code == 200
     assert response.json() == {"results": []}
 
 
-def test_search_requires_a_query(client):
+def test_search_requires_a_query(client: TestClient) -> None:
     response = client.post("/search", json={})
 
     assert response.status_code == 422
 
 
-def test_get_document_returns_a_ready_document(client):
+def test_get_document_returns_a_ready_document(client: TestClient) -> None:
     uploaded = _upload(client, "source.pdf")
 
     response = client.get(f"/documents/{uploaded.json()['id']}")
@@ -308,7 +332,7 @@ def test_get_document_returns_a_ready_document(client):
     }
 
 
-def test_get_document_reports_the_failure_reason(client):
+def test_get_document_reports_the_failure_reason(client: TestClient) -> None:
     uploaded = client.post(
         "/documents",
         files={"file": ("notes.docx", b"file contents", "application/msword")},
@@ -322,7 +346,7 @@ def test_get_document_reports_the_failure_reason(client):
     assert body["error"]
 
 
-def test_get_document_404s_for_an_unknown_id(client):
+def test_get_document_404s_for_an_unknown_id(client: TestClient) -> None:
     response = client.get("/documents/999")
 
     assert response.status_code == 404

@@ -73,7 +73,8 @@ def stage_file(
 
     if source_path.suffix.lower() not in SUPPORTED_SUFFIXES:
         raise UnsupportedFileTypeError(
-            f"Unsupported file type {source_path.suffix!r}; expected one of {sorted(SUPPORTED_SUFFIXES)}"
+            f"Unsupported file type {source_path.suffix!r}; "
+            f"expected one of {sorted(SUPPORTED_SUFFIXES)}"
         )
 
     if not source_path.is_file():

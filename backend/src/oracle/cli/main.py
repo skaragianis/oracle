@@ -75,7 +75,8 @@ def _reset() -> None:
     shutil.rmtree(embeddings.DEFAULT_VECTOR_DB_PATH, ignore_errors=True)
     print(
         f"Reset database at {db.DEFAULT_DB_PATH}, removed documents at "
-        f"{ingest.DEFAULT_UPLOADS_DIR} and vectors at {embeddings.DEFAULT_VECTOR_DB_PATH}"
+        f"{ingest.DEFAULT_UPLOADS_DIR} and vectors at "
+        f"{embeddings.DEFAULT_VECTOR_DB_PATH}"
     )
 
 

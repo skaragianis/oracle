@@ -3,6 +3,8 @@ import sqlite3
 import subprocess
 import sys
 import uuid
+from collections.abc import Sequence
+from pathlib import Path
 
 import docx
 import fitz
@@ -10,6 +12,7 @@ import pytest
 import tiktoken
 
 from oracle.common.db import apply_migrations
+from oracle.common.embeddings import ChunkToIndex, VectorIndex
 from oracle.common.ingest import (
     CHUNK_ENCODING_NAME,
     UnsupportedFileTypeError,
@@ -21,13 +24,15 @@ from oracle.common.ingest import (
 
 
 @pytest.fixture
-def conn(tmp_path):
+def conn(tmp_path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(tmp_path / "test.db")
     apply_migrations(connection)
     return connection
 
 
-def _write_pdf(path, pages_of_paragraphs, page_height=842):
+def _write_pdf(
+    path: Path, pages_of_paragraphs: list[list[str]], page_height: int = 842
+) -> None:
     """pages_of_paragraphs: list of pages, each a list of paragraph strings."""
     doc = fitz.open()
     for paragraphs in pages_of_paragraphs:
@@ -40,15 +45,17 @@ def _write_pdf(path, pages_of_paragraphs, page_height=842):
     doc.close()
 
 
-def _write_docx(path, paragraphs):
+def _write_docx(path: Path, paragraphs: list[str]) -> None:
     document = docx.Document()
     for paragraph in paragraphs:
         document.add_paragraph(paragraph)
-    document.save(path)
+    document.save(str(path))
 
 
 @pytest.mark.parametrize("suffix", [".pdf", ".PDF"])
-def test_ingest_file_copies_pdf_with_uuid_name(tmp_path, conn, suffix):
+def test_ingest_file_copies_pdf_with_uuid_name(
+    tmp_path: Path, conn: sqlite3.Connection, suffix: str
+) -> None:
     source = tmp_path / f"source{suffix}"
     _write_pdf(source, [["Hello world."]])
     uploads_dir = tmp_path / "uploads"
@@ -61,7 +68,9 @@ def test_ingest_file_copies_pdf_with_uuid_name(tmp_path, conn, suffix):
     assert source.exists()
 
 
-def test_ingest_file_copies_docx_with_uuid_name(tmp_path, conn):
+def test_ingest_file_copies_docx_with_uuid_name(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.docx"
     source.write_bytes(b"file contents")
     uploads_dir = tmp_path / "uploads"
@@ -75,7 +84,9 @@ def test_ingest_file_copies_docx_with_uuid_name(tmp_path, conn):
     assert source.exists()
 
 
-def test_stage_file_leaves_document_pending(tmp_path, conn):
+def test_stage_file_leaves_document_pending(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     # Staging is the half of ingestion the HTTP request does; chunking, and with
     # it any move off 'pending', happens later in a background task.
     source = tmp_path / "source.pdf"
@@ -93,7 +104,9 @@ def test_stage_file_leaves_document_pending(tmp_path, conn):
     assert chunk_count == 0
 
 
-def test_process_document_marks_a_chunked_pdf_ready(tmp_path, conn):
+def test_process_document_marks_a_chunked_pdf_ready(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
     staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
@@ -107,7 +120,9 @@ def test_process_document_marks_a_chunked_pdf_ready(tmp_path, conn):
     ).fetchone() == ("ready", None)
 
 
-def test_process_document_records_failure_instead_of_raising(tmp_path, conn):
+def test_process_document_records_failure_instead_of_raising(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     # A background task has nobody to return an error to, so a corrupt PDF has to
     # land on the document as 'failed' rather than propagate.
     source = tmp_path / "source.pdf"
@@ -124,7 +139,9 @@ def test_process_document_records_failure_instead_of_raising(tmp_path, conn):
     assert error == result.error
 
 
-def test_ingest_file_fails_a_malformed_docx(tmp_path, conn):
+def test_ingest_file_fails_a_malformed_docx(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.docx"
     source.write_bytes(b"file contents")
 
@@ -138,7 +155,9 @@ def test_ingest_file_fails_a_malformed_docx(tmp_path, conn):
     assert status == "failed"
 
 
-def test_ingest_file_re_adding_a_failed_document_resets_it_to_pending(tmp_path, conn):
+def test_ingest_file_re_adding_a_failed_document_resets_it_to_pending(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     # The failure and its reason belong to a specific upload, so a replacement
     # must not inherit them while it waits to be chunked.
     source = tmp_path / "source.docx"
@@ -153,7 +172,9 @@ def test_ingest_file_re_adding_a_failed_document_resets_it_to_pending(tmp_path, 
     ).fetchone() == ("pending", None)
 
 
-def test_ingest_file_creates_uploads_dir_if_missing(tmp_path, conn):
+def test_ingest_file_creates_uploads_dir_if_missing(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
     uploads_dir = tmp_path / "does" / "not" / "exist"
@@ -163,7 +184,9 @@ def test_ingest_file_creates_uploads_dir_if_missing(tmp_path, conn):
     assert result.destination_path.exists()
 
 
-def test_ingest_file_rejects_unsupported_extension(tmp_path, conn):
+def test_ingest_file_rejects_unsupported_extension(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.txt"
     source.write_bytes(b"file contents")
 
@@ -171,14 +194,18 @@ def test_ingest_file_rejects_unsupported_extension(tmp_path, conn):
         ingest_file(conn, source, uploads_dir=tmp_path / "uploads")
 
 
-def test_ingest_file_raises_for_missing_source(tmp_path, conn):
+def test_ingest_file_raises_for_missing_source(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "missing.pdf"
 
     with pytest.raises(FileNotFoundError):
         ingest_file(conn, source, uploads_dir=tmp_path / "uploads")
 
 
-def test_ingest_file_first_add_is_not_marked_as_replaced(tmp_path, conn):
+def test_ingest_file_first_add_is_not_marked_as_replaced(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
     uploads_dir = tmp_path / "uploads"
@@ -188,7 +215,9 @@ def test_ingest_file_first_add_is_not_marked_as_replaced(tmp_path, conn):
     assert result.replaced is False
 
 
-def test_ingest_file_reingesting_same_filename_replaces_document(tmp_path, conn):
+def test_ingest_file_reingesting_same_filename_replaces_document(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
     uploads_dir = tmp_path / "uploads"
@@ -207,7 +236,9 @@ def test_ingest_file_reingesting_same_filename_replaces_document(tmp_path, conn)
     assert count == 1
 
 
-def test_ingest_file_reingesting_removes_previous_upload(tmp_path, conn):
+def test_ingest_file_reingesting_removes_previous_upload(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
     uploads_dir = tmp_path / "uploads"
@@ -220,7 +251,9 @@ def test_ingest_file_reingesting_removes_previous_upload(tmp_path, conn):
     assert list(uploads_dir.iterdir()) == [second.destination_path]
 
 
-def test_ingest_file_reingesting_recalculates_chunks(tmp_path, conn):
+def test_ingest_file_reingesting_recalculates_chunks(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
     uploads_dir = tmp_path / "uploads"
@@ -237,7 +270,9 @@ def test_ingest_file_reingesting_recalculates_chunks(tmp_path, conn):
     assert chunk_rows == [("Goodbye world.\n",)]
 
 
-def test_ingest_file_records_document_and_chunks(tmp_path, conn):
+def test_ingest_file_records_document_and_chunks(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
 
@@ -254,7 +289,9 @@ def test_ingest_file_records_document_and_chunks(tmp_path, conn):
     assert chunk_row == (result.doc_id, 0, "Hello world.\n")
 
 
-def test_process_document_marks_a_chunked_docx_ready(tmp_path, conn):
+def test_process_document_marks_a_chunked_docx_ready(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "source.docx"
     _write_docx(source, ["Hello world."])
     staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
@@ -269,7 +306,9 @@ def test_process_document_marks_a_chunked_docx_ready(tmp_path, conn):
     assert chunk_row == ("Hello world.\n", None)
 
 
-def test_chunk_document_splits_long_docx_into_multiple_chunks(tmp_path, conn):
+def test_chunk_document_splits_long_docx_into_multiple_chunks(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "long.docx"
     encoding = tiktoken.get_encoding(CHUNK_ENCODING_NAME)
     # Unique numbered paragraphs make it possible to verify overlap precisely,
@@ -283,6 +322,7 @@ def test_chunk_document_splits_long_docx_into_multiple_chunks(tmp_path, conn):
         "'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1)"
     ).lastrowid
     conn.commit()
+    assert doc_id is not None
 
     chunk_count = chunk_document(conn, doc_id, source)
 
@@ -295,7 +335,15 @@ def test_chunk_document_splits_long_docx_into_multiple_chunks(tmp_path, conn):
     assert chunk_count == len(rows)
     assert chunk_count > 1
 
-    for seq, text, page_number, paragraph_start, paragraph_end, char_start, char_end in rows:
+    for (
+        seq,
+        text,
+        page_number,
+        paragraph_start,
+        paragraph_end,
+        char_start,
+        char_end,
+    ) in rows:
         token_count = len(encoding.encode(text))
         assert token_count >= 800 or seq == chunk_count - 1
         assert page_number is None
@@ -303,7 +351,9 @@ def test_chunk_document_splits_long_docx_into_multiple_chunks(tmp_path, conn):
         assert char_start < char_end
 
 
-def test_chunk_document_returns_zero_for_blank_docx(tmp_path, conn):
+def test_chunk_document_returns_zero_for_blank_docx(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "blank.docx"
     _write_docx(source, [])
 
@@ -313,6 +363,7 @@ def test_chunk_document_returns_zero_for_blank_docx(tmp_path, conn):
         "'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1)"
     ).lastrowid
     conn.commit()
+    assert doc_id is not None
 
     chunk_count = chunk_document(conn, doc_id, source)
 
@@ -323,7 +374,9 @@ def test_chunk_document_returns_zero_for_blank_docx(tmp_path, conn):
     assert remaining == 0
 
 
-def test_chunk_document_splits_long_pdf_into_multiple_chunks(tmp_path, conn):
+def test_chunk_document_splits_long_pdf_into_multiple_chunks(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "long.pdf"
     encoding = tiktoken.get_encoding(CHUNK_ENCODING_NAME)
     # Unique numbered lines make it possible to verify overlap precisely,
@@ -344,6 +397,7 @@ def test_chunk_document_splits_long_pdf_into_multiple_chunks(tmp_path, conn):
         "VALUES ('long.pdf', 'stored.pdf', 'application/pdf', 1)"
     ).lastrowid
     conn.commit()
+    assert doc_id is not None
 
     chunk_count = chunk_document(conn, doc_id, source)
 
@@ -359,7 +413,15 @@ def test_chunk_document_splits_long_pdf_into_multiple_chunks(tmp_path, conn):
     seqs = [row[0] for row in rows]
     assert seqs == list(range(chunk_count))
 
-    for seq, text, page_number, paragraph_start, paragraph_end, char_start, char_end in rows:
+    for (
+        seq,
+        text,
+        page_number,
+        paragraph_start,
+        paragraph_end,
+        char_start,
+        char_end,
+    ) in rows:
         token_count = len(encoding.encode(text))
         assert token_count >= 800 or seq == chunk_count - 1
         assert page_number >= 1
@@ -377,12 +439,17 @@ def test_chunk_document_splits_long_pdf_into_multiple_chunks(tmp_path, conn):
         # the overlap should be a suffix of the previous chunk, not a coincidental
         # match somewhere in the middle
         assert overlap_index > len(previous_lines) // 2
-        assert previous_lines[overlap_index:] == current[1].splitlines(keepends=True)[
-            : len(previous_lines) - overlap_index
-        ]
+        assert (
+            previous_lines[overlap_index:]
+            == current[1].splitlines(keepends=True)[
+                : len(previous_lines) - overlap_index
+            ]
+        )
 
 
-def test_chunk_document_returns_zero_for_blank_pdf(tmp_path, conn):
+def test_chunk_document_returns_zero_for_blank_pdf(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
     source = tmp_path / "blank.pdf"
     doc = fitz.open()
     doc.new_page()
@@ -394,6 +461,7 @@ def test_chunk_document_returns_zero_for_blank_pdf(tmp_path, conn):
         "VALUES ('blank.pdf', 'stored.pdf', 'application/pdf', 1)"
     ).lastrowid
     conn.commit()
+    assert doc_id is not None
 
     chunk_count = chunk_document(conn, doc_id, source)
 
@@ -404,7 +472,9 @@ def test_chunk_document_returns_zero_for_blank_pdf(tmp_path, conn):
     assert remaining == 0
 
 
-def test_process_document_indexes_chunk_vectors(tmp_path, conn, vector_index):
+def test_process_document_indexes_chunk_vectors(
+    tmp_path: Path, conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
     staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
@@ -420,7 +490,9 @@ def test_process_document_indexes_chunk_vectors(tmp_path, conn, vector_index):
     assert [match.chunk_id for match in matches] == [chunk_id]
 
 
-def test_ingest_file_replacement_removes_stale_vectors(tmp_path, conn, vector_index):
+def test_ingest_file_replacement_removes_stale_vectors(
+    tmp_path: Path, conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
     source = tmp_path / "source.pdf"
     _write_pdf(source, [["Hello world."]])
     uploads_dir = tmp_path / "uploads"
@@ -442,9 +514,12 @@ def test_ingest_file_replacement_removes_stale_vectors(tmp_path, conn, vector_in
 
 
 def test_process_document_records_an_embedding_failure(
-    tmp_path, conn, vector_index, monkeypatch
-):
-    def explode(doc_id, chunks):
+    tmp_path: Path,
+    conn: sqlite3.Connection,
+    vector_index: VectorIndex,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def explode(doc_id: int, chunks: Sequence[ChunkToIndex]) -> None:
         raise RuntimeError("embedding blew up")
 
     monkeypatch.setattr(vector_index, "index_chunks", explode)
@@ -460,7 +535,7 @@ def test_process_document_records_an_embedding_failure(
     assert result.error is not None and "embedding blew up" in result.error
 
 
-def test_uploads_dir_can_be_overridden_by_environment(tmp_path):
+def test_uploads_dir_can_be_overridden_by_environment(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,

@@ -1,5 +1,6 @@
 import uuid
 import zlib
+from collections.abc import Iterable, Iterator
 
 import chromadb
 import pytest
@@ -19,10 +20,10 @@ class FakeEmbedder:
         norm = sum(value * value for value in vector) ** 0.5 or 1.0
         return [value / norm for value in vector]
 
-    def query_embed(self, query):
+    def query_embed(self, query: str) -> Iterator[list[float]]:
         yield self._embed(query)
 
-    def passage_embed(self, texts):
+    def passage_embed(self, texts: Iterable[str]) -> Iterator[list[float]]:
         for text in texts:
             yield self._embed(text)
 

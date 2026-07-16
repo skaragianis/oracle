@@ -1,11 +1,12 @@
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from oracle.common.chunks import create_chunk
 from oracle.common.db import apply_migrations
 from oracle.common.documents import create_document
-from oracle.common.embeddings import ChunkToIndex
+from oracle.common.embeddings import ChunkToIndex, VectorIndex
 from oracle.common.search import (
     SearchResult,
     build_fts_query,
@@ -18,17 +19,21 @@ from oracle.common.search import (
 
 
 @pytest.fixture
-def conn(tmp_path):
+def conn(tmp_path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(tmp_path / "test.db")
     apply_migrations(connection)
     return connection
 
 
-def test_search_chunks_returns_empty_list_when_no_matches(conn):
+def test_search_chunks_returns_empty_list_when_no_matches(
+    conn: sqlite3.Connection,
+) -> None:
     assert search_chunks(conn, "hello") == []
 
 
-def test_search_chunks_finds_matching_chunk_with_document(conn):
+def test_search_chunks_finds_matching_chunk_with_document(
+    conn: sqlite3.Connection,
+) -> None:
     doc_id = create_document(
         conn,
         filename="report.pdf",
@@ -55,7 +60,7 @@ def test_search_chunks_finds_matching_chunk_with_document(conn):
     ]
 
 
-def test_search_chunks_ignores_non_matching_chunks(conn):
+def test_search_chunks_ignores_non_matching_chunks(conn: sqlite3.Connection) -> None:
     doc_id = create_document(
         conn,
         filename="report.pdf",
@@ -71,7 +76,7 @@ def test_search_chunks_ignores_non_matching_chunks(conn):
     assert [result.seq for result in results] == [0]
 
 
-def test_search_chunks_orders_by_relevance(conn):
+def test_search_chunks_orders_by_relevance(conn: sqlite3.Connection) -> None:
     doc_id = create_document(
         conn,
         filename="report.pdf",
@@ -87,7 +92,9 @@ def test_search_chunks_orders_by_relevance(conn):
     assert [result.seq for result in results] == [0, 1]
 
 
-def test_search_chunks_handles_query_with_special_fts5_characters(conn):
+def test_search_chunks_handles_query_with_special_fts5_characters(
+    conn: sqlite3.Connection,
+) -> None:
     doc_id = create_document(
         conn,
         filename="report.pdf",
@@ -113,43 +120,50 @@ def test_search_chunks_handles_query_with_special_fts5_characters(conn):
         "(unbalanced",
     ],
 )
-def test_search_chunks_does_not_raise_on_fts5_syntax_characters(conn, query):
+def test_search_chunks_does_not_raise_on_fts5_syntax_characters(
+    conn: sqlite3.Connection, query: str
+) -> None:
     search_chunks(conn, query)
 
 
-def test_escape_fts_query_wraps_query_as_a_single_quoted_phrase():
+def test_escape_fts_query_wraps_query_as_a_single_quoted_phrase() -> None:
     assert escape_fts_query("10.1") == '"10.1"'
 
 
-def test_escape_fts_query_doubles_embedded_quotes():
+def test_escape_fts_query_doubles_embedded_quotes() -> None:
     assert escape_fts_query('say "hi"') == '"say ""hi"""'
 
 
-def test_build_fts_query_lowercases_and_ors_terms():
+def test_build_fts_query_lowercases_and_ors_terms() -> None:
     assert build_fts_query("Quick BROWN Fox") == '"quick" OR "brown" OR "fox"'
 
 
-def test_build_fts_query_drops_stop_words():
+def test_build_fts_query_drops_stop_words() -> None:
     assert build_fts_query("the quick and the brown") == '"quick" OR "brown"'
 
 
-def test_build_fts_query_drops_single_character_tokens():
+def test_build_fts_query_drops_single_character_tokens() -> None:
     assert build_fts_query("a b of quick") == '"quick"'
 
 
-def test_build_fts_query_returns_none_when_nothing_remains():
+def test_build_fts_query_returns_none_when_nothing_remains() -> None:
     assert build_fts_query("the a of") is None
 
 
-def test_build_fts_query_returns_none_for_empty_input():
+def test_build_fts_query_returns_none_for_empty_input() -> None:
     assert build_fts_query("") is None
 
 
-def test_build_fts_query_escapes_special_characters_per_term():
+def test_build_fts_query_escapes_special_characters_per_term() -> None:
     assert build_fts_query("10.1 fox") == '"10.1" OR "fox"'
 
 
-def _create_indexed_chunks(conn, vector_index, texts, filename="report.pdf"):
+def _create_indexed_chunks(
+    conn: sqlite3.Connection,
+    vector_index: VectorIndex,
+    texts: list[str],
+    filename: str = "report.pdf",
+) -> tuple[int, list[ChunkToIndex]]:
     doc_id = create_document(
         conn,
         filename=filename,
@@ -167,7 +181,7 @@ def _create_indexed_chunks(conn, vector_index, texts, filename="report.pdf"):
     return doc_id, chunks
 
 
-def test_search_chunks_limits_results(conn):
+def test_search_chunks_limits_results(conn: sqlite3.Connection) -> None:
     doc_id = create_document(
         conn,
         filename="report.pdf",
@@ -182,7 +196,9 @@ def test_search_chunks_limits_results(conn):
     assert len(search_chunks(conn, "fox", limit=3)) == 3
 
 
-def test_search_vectors_returns_nearest_chunks_with_source(conn, vector_index):
+def test_search_vectors_returns_nearest_chunks_with_source(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
     doc_id, chunks = _create_indexed_chunks(
         conn,
         vector_index,
@@ -206,13 +222,17 @@ def test_search_vectors_returns_nearest_chunks_with_source(conn, vector_index):
     )
 
 
-def test_search_vectors_returns_empty_for_blank_query(conn, vector_index):
+def test_search_vectors_returns_empty_for_blank_query(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
     _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
 
     assert search_vectors(conn, vector_index, "   ") == []
 
 
-def test_search_vectors_limits_results(conn, vector_index):
+def test_search_vectors_limits_results(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
     _create_indexed_chunks(
         conn, vector_index, [f"fox sighting number {i}" for i in range(15)]
     )
@@ -221,17 +241,19 @@ def test_search_vectors_limits_results(conn, vector_index):
     assert len(search_vectors(conn, vector_index, "fox", limit=3)) == 3
 
 
-def test_search_vectors_drops_chunks_missing_from_the_database(conn, vector_index):
-    doc_id, chunks = _create_indexed_chunks(
-        conn, vector_index, ["the quick brown fox"]
-    )
+def test_search_vectors_drops_chunks_missing_from_the_database(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    doc_id, chunks = _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
     conn.execute("DELETE FROM chunks WHERE id = ?", (chunks[0].chunk_id,))
     conn.commit()
 
     assert search_vectors(conn, vector_index, "quick fox") == []
 
 
-def test_search_hybrid_fuses_both_indexes_and_merges_sources(conn, vector_index):
+def test_search_hybrid_fuses_both_indexes_and_merges_sources(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
     _, chunks = _create_indexed_chunks(
         conn,
         vector_index,
@@ -251,7 +273,9 @@ def test_search_hybrid_fuses_both_indexes_and_merges_sources(conn, vector_index)
     assert results[1].sources == ["vector"]
 
 
-def test_search_hybrid_returns_at_most_five_results(conn, vector_index):
+def test_search_hybrid_returns_at_most_five_results(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
     _create_indexed_chunks(
         conn, vector_index, [f"fox sighting number {i}" for i in range(8)]
     )
@@ -261,11 +285,13 @@ def test_search_hybrid_returns_at_most_five_results(conn, vector_index):
     assert len(results) == 5
 
 
-def test_search_hybrid_returns_empty_when_nothing_is_indexed(conn, vector_index):
+def test_search_hybrid_returns_empty_when_nothing_is_indexed(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
     assert search_hybrid(conn, vector_index, "anything") == []
 
 
-def _result(chunk_id, sources):
+def _result(chunk_id: int, sources: list[str]) -> SearchResult:
     return SearchResult(
         doc_id=1,
         filename="report.pdf",
@@ -277,7 +303,7 @@ def _result(chunk_id, sources):
     )
 
 
-def test_rrf_ranks_a_chunk_found_by_both_indexes_above_single_index_winners():
+def test_rrf_ranks_a_chunk_found_by_both_indexes_above_single_index_winners() -> None:
     bm25 = [_result(1, ["bm25"]), _result(3, ["bm25"])]
     vector = [_result(2, ["vector"]), _result(3, ["vector"])]
 
@@ -288,13 +314,13 @@ def test_rrf_ranks_a_chunk_found_by_both_indexes_above_single_index_winners():
     assert fused[0].sources == ["bm25", "vector"]
 
 
-def test_rrf_breaks_score_ties_by_chunk_id():
+def test_rrf_breaks_score_ties_by_chunk_id() -> None:
     fused = reciprocal_rank_fusion([[_result(2, ["bm25"])], [_result(1, ["vector"])]])
 
     assert [result.chunk_id for result in fused] == [1, 2]
 
 
-def test_rrf_respects_the_limit():
+def test_rrf_respects_the_limit() -> None:
     bm25 = [_result(i, ["bm25"]) for i in range(10)]
 
     fused = reciprocal_rank_fusion([bm25], limit=5)

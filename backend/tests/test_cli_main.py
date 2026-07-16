@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+from pathlib import Path
 
 import fitz
 import pytest
@@ -7,10 +8,11 @@ from conftest import make_vector_index
 
 from oracle.cli.main import main
 from oracle.common import db, embeddings, ingest
+from oracle.common.embeddings import VectorIndex
 
 
 @pytest.fixture(autouse=True)
-def fake_embeddings(tmp_path, monkeypatch):
+def fake_embeddings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> VectorIndex:
     """Keep CLI runs away from the real model download and the real vector db."""
     index = make_vector_index()
     monkeypatch.setattr(embeddings, "open_vector_index", lambda: index)
@@ -18,7 +20,9 @@ def fake_embeddings(tmp_path, monkeypatch):
     return index
 
 
-def test_main_runs_with_no_args_prints_usage(tmp_path, capsys, monkeypatch):
+def test_main_runs_with_no_args_prints_usage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
     monkeypatch.setattr(sys, "argv", ["oracle-cli"])
     main()
@@ -26,7 +30,9 @@ def test_main_runs_with_no_args_prints_usage(tmp_path, capsys, monkeypatch):
     assert captured.out.startswith("usage: oracle-cli")
 
 
-def test_main_runs_migrations_on_startup_even_with_no_command(tmp_path, monkeypatch):
+def test_main_runs_migrations_on_startup_even_with_no_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     db_path = tmp_path / "oracle.db"
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(sys, "argv", ["oracle-cli"])
@@ -40,7 +46,9 @@ def test_main_runs_migrations_on_startup_even_with_no_command(tmp_path, monkeypa
     assert table is not None
 
 
-def test_main_add_ingests_file_and_records_document(tmp_path, capsys, monkeypatch):
+def test_main_add_ingests_file_and_records_document(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = tmp_path / "report.pdf"
     pdf_doc = fitz.open()
     pdf_doc.new_page().insert_text((72, 72), "Hello world.")
@@ -62,8 +70,7 @@ def test_main_add_ingests_file_and_records_document(tmp_path, capsys, monkeypatc
 
     conn = sqlite3.connect(db_path)
     row = conn.execute(
-        "SELECT filename, stored_filename, mime_type, size_bytes, status "
-        "FROM documents"
+        "SELECT filename, stored_filename, mime_type, size_bytes, status FROM documents"
     ).fetchone()
     assert row == (
         "report.pdf",
@@ -80,8 +87,8 @@ def test_main_add_ingests_file_and_records_document(tmp_path, capsys, monkeypatc
 
 
 def test_main_add_twice_prints_re_added_and_keeps_one_document(
-    tmp_path, capsys, monkeypatch
-):
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = tmp_path / "report.pdf"
     pdf_doc = fitz.open()
     pdf_doc.new_page().insert_text((72, 72), "Hello world.")
@@ -105,7 +112,9 @@ def test_main_add_twice_prints_re_added_and_keeps_one_document(
     assert len(list(uploads_dir.iterdir())) == 1
 
 
-def test_main_add_missing_file_prints_friendly_error(tmp_path, capsys, monkeypatch):
+def test_main_add_missing_file_prints_friendly_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     missing = tmp_path / "missing.pdf"
     monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", tmp_path / "uploads")
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
@@ -121,8 +130,8 @@ def test_main_add_missing_file_prints_friendly_error(tmp_path, capsys, monkeypat
 
 
 def test_main_reset_removes_existing_database_and_uploads(
-    tmp_path, capsys, monkeypatch
-):
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     db_path = tmp_path / "oracle.db"
     uploads_dir = tmp_path / "uploads"
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
@@ -146,7 +155,9 @@ def test_main_reset_removes_existing_database_and_uploads(
     assert not vector_db_path.exists()
 
 
-def test_main_reset_is_a_noop_when_nothing_exists(tmp_path, capsys, monkeypatch):
+def test_main_reset_is_a_noop_when_nothing_exists(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     db_path = tmp_path / "oracle.db"
     uploads_dir = tmp_path / "uploads"
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
@@ -160,7 +171,9 @@ def test_main_reset_is_a_noop_when_nothing_exists(tmp_path, capsys, monkeypatch)
     assert not db_path.exists()
 
 
-def test_main_list_prints_no_documents_message_when_empty(tmp_path, capsys, monkeypatch):
+def test_main_list_prints_no_documents_message_when_empty(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
     monkeypatch.setattr(sys, "argv", ["oracle-cli", "--list"])
 
@@ -170,7 +183,9 @@ def test_main_list_prints_no_documents_message_when_empty(tmp_path, capsys, monk
     assert "No documents found." in captured.out
 
 
-def test_main_list_prints_documents_with_emphasised_id(tmp_path, capsys, monkeypatch):
+def test_main_list_prints_documents_with_emphasised_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = tmp_path / "report.pdf"
     pdf_doc = fitz.open()
     pdf_doc.new_page().insert_text((72, 72), "Hello world.")
@@ -191,8 +206,8 @@ def test_main_list_prints_documents_with_emphasised_id(tmp_path, capsys, monkeyp
 
 
 def test_main_search_prints_no_results_message_when_no_matches(
-    tmp_path, capsys, monkeypatch
-):
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
     monkeypatch.setattr(sys, "argv", ["oracle-cli", "--search", "nothing"])
 
@@ -202,7 +217,9 @@ def test_main_search_prints_no_results_message_when_no_matches(
     assert "No results found." in captured.out
 
 
-def test_main_search_prints_matching_document_and_chunk(tmp_path, capsys, monkeypatch):
+def test_main_search_prints_matching_document_and_chunk(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = tmp_path / "report.pdf"
     pdf_doc = fitz.open()
     pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
@@ -224,8 +241,8 @@ def test_main_search_prints_matching_document_and_chunk(tmp_path, capsys, monkey
 
 
 def test_main_search_with_only_stop_words_prints_no_results(
-    tmp_path, capsys, monkeypatch
-):
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
     monkeypatch.setattr(sys, "argv", ["oracle-cli", "--search", "the"])
 
@@ -236,8 +253,8 @@ def test_main_search_with_only_stop_words_prints_no_results(
 
 
 def test_main_add_unsupported_extension_prints_friendly_error(
-    tmp_path, capsys, monkeypatch
-):
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = tmp_path / "notes.txt"
     source.write_text("hello")
     monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", tmp_path / "uploads")

@@ -32,9 +32,8 @@ select = [
     "ANN"
 ]
 
-[tool.ruff.lint.flake8-annotations]
-allow-star-arg-any = false
-ignore-fully-untyped = false
+[tool.ty.rules]
+all = "error"
 
 [dependency-groups]
 dev = [
