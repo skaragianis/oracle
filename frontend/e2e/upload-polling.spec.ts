@@ -10,7 +10,6 @@ function row(page: Page, filename: string) {
 
 async function upload(page: Page, file: string) {
   await page.locator('input[type="file"]').setInputFiles(file)
-  await page.getByRole('button', { name: 'Upload' }).click()
 }
 
 async function arrivesPending(page: Page, filename: string) {
@@ -46,8 +45,6 @@ test('the uploader clears its staging row once the upload completes', async ({ p
   const uploader = page.locator('.p-fileupload')
   await page.locator('input[type="file"]').setInputFiles(LARGE_PDF)
   await expect(uploader.getByText('large.pdf')).toBeVisible()
-
-  await page.getByRole('button', { name: 'Upload' }).click()
 
   await expect(uploader.getByText('large.pdf')).toBeHidden()
   await expect(row(page, 'large.pdf').getByText('ready')).toBeVisible({ timeout: 60_000 })
