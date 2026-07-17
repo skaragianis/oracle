@@ -20,6 +20,7 @@ from oracle.common.ingest import (
     chunk_document,
     ingest_file,
     process_document,
+    reprocess_pending_documents,
     stage_file,
 )
 
@@ -636,6 +637,89 @@ def test_process_document_records_an_embedding_failure(
 
     assert result.status == "failed"
     assert result.error is not None and "embedding blew up" in result.error
+
+
+def test_process_document_clears_stale_chunks_before_rechunking(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
+    # Simulates a process killed mid-chunk on a previous attempt: a stale chunk
+    # row is already present when process_document runs again. It must not be
+    # left alongside the freshly chunked text.
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    staged = stage_file(conn, source, uploads_dir=tmp_path / "uploads")
+    conn.execute(
+        "INSERT INTO chunks (doc_id, seq, text) VALUES (?, 0, 'stale partial chunk')",
+        (staged.doc_id,),
+    )
+    conn.commit()
+
+    result = process_document(conn, staged.doc_id, staged.destination_path)
+
+    assert result.status == "ready"
+    chunk_rows = conn.execute(
+        "SELECT text FROM chunks WHERE doc_id = ?", (staged.doc_id,)
+    ).fetchall()
+    assert chunk_rows == [("Hello world.\n",)]
+
+
+def test_reprocess_pending_documents_resumes_a_pending_document(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
+    # Staging without processing is what stage_file leaves behind, and what a
+    # process killed before its background task ran would also leave behind.
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    uploads_dir = tmp_path / "uploads"
+    staged = stage_file(conn, source, uploads_dir=uploads_dir)
+
+    results = reprocess_pending_documents(conn, uploads_dir=uploads_dir)
+
+    assert [result.status for result in results] == ["ready"]
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (staged.doc_id,)
+    ).fetchone()[0]
+    assert status == "ready"
+    chunk_rows = conn.execute(
+        "SELECT text FROM chunks WHERE doc_id = ?", (staged.doc_id,)
+    ).fetchall()
+    assert chunk_rows == [("Hello world.\n",)]
+
+
+def test_reprocess_pending_documents_fails_a_document_with_a_missing_upload(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    uploads_dir = tmp_path / "uploads"
+    staged = stage_file(conn, source, uploads_dir=uploads_dir)
+    staged.destination_path.unlink()
+
+    results = reprocess_pending_documents(conn, uploads_dir=uploads_dir)
+
+    assert [result.status for result in results] == ["failed"]
+    status, error = conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (staged.doc_id,)
+    ).fetchone()
+    assert status == "failed"
+    assert error and "missing" in error.lower()
+
+
+def test_reprocess_pending_documents_ignores_ready_and_failed_documents(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
+    source = tmp_path / "source.pdf"
+    _write_pdf(source, [["Hello world."]])
+    uploads_dir = tmp_path / "uploads"
+    ingest_file(conn, source, uploads_dir=uploads_dir)
+
+    malformed = tmp_path / "bad.docx"
+    malformed.write_bytes(b"not a real docx")
+    ingest_file(conn, malformed, uploads_dir=uploads_dir)
+
+    results = reprocess_pending_documents(conn, uploads_dir=uploads_dir)
+
+    assert results == []
 
 
 def test_uploads_dir_can_be_overridden_by_environment(tmp_path: Path) -> None:

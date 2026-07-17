@@ -121,6 +121,10 @@ def process_document(
     stored_path = Path(stored_path)
 
     try:
+        # May occur if previously interrupted
+        chunks.delete_chunks_for_document(conn, doc_id)
+        if vector_index is not None:
+            vector_index.delete_document(doc_id)
         chunk_document(conn, doc_id, stored_path)
         if vector_index is not None:
             _embed_document_chunks(conn, doc_id, vector_index)
@@ -144,6 +148,25 @@ def _embed_document_chunks(
         doc_id,
         [embeddings.ChunkToIndex(chunk_id=row[0], text=row[1]) for row in rows],
     )
+
+
+def reprocess_pending_documents(
+    conn: sqlite3.Connection,
+    uploads_dir: Path = DEFAULT_UPLOADS_DIR,
+    vector_index: embeddings.VectorIndex | None = None,
+) -> list[ProcessResult]:
+    results = []
+    for doc_id, stored_filename in documents.list_pending_documents(conn):
+        stored_path = uploads_dir / stored_filename
+        if not stored_path.is_file():
+            error = f"Uploaded file missing: {stored_path}"
+            documents.mark_document_failed(conn, doc_id, error)
+            results.append(ProcessResult(status="failed", error=error))
+            continue
+        results.append(
+            process_document(conn, doc_id, stored_path, vector_index=vector_index)
+        )
+    return results
 
 
 def ingest_file(
@@ -242,11 +265,6 @@ def _iter_pdf_lines(pdf_path: Path) -> Iterator[LineSegment]:
 
 
 def _iter_docx_lines(docx_path: Path) -> Iterator[LineSegment]:
-    # Document.paragraphs only lists body-level paragraphs; it silently skips
-    # anything inside a table, which is where many real-world .docx files
-    # (resumes, invoices, table-based report layouts) put most of their
-    # content. iter_inner_content() walks paragraphs and tables in document
-    # order, so both are covered and interleaved correctly.
     paragraph_index = -1
     for block in docx.Document(str(docx_path)).iter_inner_content():
         for paragraph in _iter_block_paragraphs(block):

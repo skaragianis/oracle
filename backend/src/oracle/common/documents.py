@@ -38,6 +38,12 @@ def list_documents(conn: sqlite3.Connection) -> list[Document]:
     ]
 
 
+def list_pending_documents(conn: sqlite3.Connection) -> list[tuple[int, str]]:
+    return conn.execute(
+        "SELECT id, stored_filename FROM documents WHERE status = 'pending'"
+    ).fetchall()
+
+
 def get_document(conn: sqlite3.Connection, document_id: int) -> Document | None:
     row = conn.execute(
         "SELECT id, filename, status, error FROM documents WHERE id = ?",

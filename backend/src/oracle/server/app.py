@@ -26,7 +26,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     db.run_migrations()
     # Downloads the embedding model on the very first startup; after that it
     # loads from the cache dir.
-    embeddings.get_default_vector_index()
+    vector_index = embeddings.get_default_vector_index()
+    conn = db.get_connection()
+    try:
+        ingest.reprocess_pending_documents(conn, vector_index=vector_index)
+    finally:
+        conn.close()
     yield
 
 
