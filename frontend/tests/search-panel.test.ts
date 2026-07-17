@@ -144,9 +144,9 @@ describe('SearchPanel', () => {
     expect(writeTextMock).toHaveBeenCalledTimes(1)
     const copied = writeTextMock.mock.calls[0][0] as string
     expect(copied).toContain('Question: brown animals')
-    expect(copied).toContain('Result 1: first.pdf, page 4 (found by: bm25, vector)')
+    expect(copied).toContain('[1] (first.pdf, p. 4)')
     expect(copied).toContain('the quick brown fox')
-    expect(copied).toContain('Result 2: second.pdf (found by: vector)')
+    expect(copied).toContain('[2] (second.pdf)')
     expect(copied).toContain('a slow brown bear')
     expect(copyButton(wrapper)!.text()).toContain('Copied')
   })

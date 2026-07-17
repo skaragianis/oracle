@@ -14,6 +14,8 @@ import {
   type SearchResult,
   type SearchSource,
 } from '../api'
+import { buildLlmPrompt } from '../llmPrompt'
+import { copyText } from '../clipboard'
 
 const SOURCE_LABELS: Record<SearchSource, string> = {
   bm25: 'BM25',
@@ -66,27 +68,10 @@ async function runSearch() {
   }
 }
 
-function formatForLlm(question: string, searchResults: SearchResult[]): string {
-  const blocks = searchResults.map((result, index) => {
-    const page = result.page_number !== null ? `, page ${result.page_number}` : ''
-    const sources = result.sources.join(', ')
-    const header = `--- Result ${index + 1}: ${result.filename}${page} (found by: ${sources}) ---`
-    return `${header}\n${result.text.trim()}`
-  })
-  return [
-    'I searched my documents for the question below. Answer it using the search results.',
-    `Question: ${question}`,
-    'Search results:',
-    ...blocks,
-  ].join('\n\n')
-}
-
 async function copyForLlm() {
   if (!scopedResults.value?.length) return
   try {
-    await navigator.clipboard.writeText(
-      formatForLlm(submittedQuery.value, scopedResults.value),
-    )
+    await copyText(buildLlmPrompt(submittedQuery.value, scopedResults.value))
   } catch {
     error.value = 'Could not copy to the clipboard.'
     return
