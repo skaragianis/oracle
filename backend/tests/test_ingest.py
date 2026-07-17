@@ -53,6 +53,15 @@ def _write_docx(path: Path, paragraphs: list[str]) -> None:
     document.save(str(path))
 
 
+def _write_docx_with_table(path: Path, rows: list[list[str]]) -> None:
+    document = docx.Document()
+    table = document.add_table(rows=len(rows), cols=len(rows[0]))
+    for row_index, row in enumerate(rows):
+        for col_index, text in enumerate(row):
+            table.cell(row_index, col_index).text = text
+    document.save(str(path))
+
+
 @pytest.mark.parametrize("suffix", [".pdf", ".PDF"])
 def test_ingest_file_copies_pdf_with_uuid_name(
     tmp_path: Path, conn: sqlite3.Connection, suffix: str
@@ -350,6 +359,73 @@ def test_chunk_document_splits_long_docx_into_multiple_chunks(
         assert page_number is None
         assert paragraph_start <= paragraph_end
         assert char_start < char_end
+
+
+def test_chunk_document_includes_text_inside_docx_tables(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
+    """Document.paragraphs skips anything inside a table, so a table-only
+    docx used to chunk to nothing (or to whatever stray body text sat around
+    the table) while still being marked ready - and any search against it
+    kept surfacing that same sliver of a chunk instead of the real content."""
+    source = tmp_path / "table.docx"
+    _write_docx_with_table(
+        source,
+        [
+            ["Name", "Role"],
+            ["Ada Lovelace", "Mathematician"],
+        ],
+    )
+
+    doc_id = conn.execute(
+        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes) "
+        "VALUES ('table.docx', 'stored.docx', "
+        "'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1)"
+    ).lastrowid
+    conn.commit()
+    assert doc_id is not None
+
+    chunk_count = chunk_document(conn, doc_id, source)
+
+    assert chunk_count == 1
+    text = conn.execute(
+        "SELECT text FROM chunks WHERE doc_id = ?", (doc_id,)
+    ).fetchone()[0]
+    for cell_text in ["Name", "Role", "Ada Lovelace", "Mathematician"]:
+        assert cell_text in text
+
+
+def test_chunk_document_preserves_docx_order_across_paragraphs_and_tables(
+    tmp_path: Path, conn: sqlite3.Connection
+) -> None:
+    source = tmp_path / "mixed.docx"
+    document = docx.Document()
+    document.add_paragraph("Intro heading")
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "Cell one"
+    table.cell(0, 1).text = "Cell two"
+    document.add_paragraph("Closing remark")
+    document.save(str(source))
+
+    doc_id = conn.execute(
+        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes) "
+        "VALUES ('mixed.docx', 'stored.docx', "
+        "'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1)"
+    ).lastrowid
+    conn.commit()
+    assert doc_id is not None
+
+    chunk_document(conn, doc_id, source)
+
+    text = conn.execute(
+        "SELECT text FROM chunks WHERE doc_id = ?", (doc_id,)
+    ).fetchone()[0]
+    assert (
+        text.index("Intro heading")
+        < text.index("Cell one")
+        < text.index("Cell two")
+        < text.index("Closing remark")
+    )
 
 
 def test_chunk_document_returns_zero_for_blank_docx(

@@ -13,6 +13,8 @@ from typing import NamedTuple
 import docx
 import fitz
 import tiktoken
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 from oracle.common import chunks, documents, embeddings
 
@@ -240,13 +242,29 @@ def _iter_pdf_lines(pdf_path: Path) -> Iterator[LineSegment]:
 
 
 def _iter_docx_lines(docx_path: Path) -> Iterator[LineSegment]:
+    # Document.paragraphs only lists body-level paragraphs; it silently skips
+    # anything inside a table, which is where many real-world .docx files
+    # (resumes, invoices, table-based report layouts) put most of their
+    # content. iter_inner_content() walks paragraphs and tables in document
+    # order, so both are covered and interleaved correctly.
     paragraph_index = -1
-    for paragraph in docx.Document(str(docx_path)).paragraphs:
-        text = paragraph.text.strip()
-        if not text:
-            continue
-        paragraph_index += 1
-        yield LineSegment(text + "\n", None, paragraph_index)
+    for block in docx.Document(str(docx_path)).iter_inner_content():
+        for paragraph in _iter_block_paragraphs(block):
+            text = paragraph.text.strip()
+            if not text:
+                continue
+            paragraph_index += 1
+            yield LineSegment(text + "\n", None, paragraph_index)
+
+
+def _iter_block_paragraphs(block: Paragraph | Table) -> Iterator[Paragraph]:
+    if isinstance(block, Table):
+        for row in block.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    yield paragraph
+    else:
+        yield block
 
 
 def _chunk_lines(
