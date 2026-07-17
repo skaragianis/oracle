@@ -1,12 +1,21 @@
-/* Minimal base; the PrimeVue Aura preset owns the rest of the look. */
+/* Minimal base; the PrimeVue Aura preset (customised in theme.ts) owns the
+   rest of the look. Newsreader is reserved for the italic serif accents
+   (wordmark, empty-state prompt) that the redesign uses against Manrope body
+   text everywhere else. */
 :root {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Manrope', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Newsreader', serif;
+  font-family: var(--font-sans);
   line-height: 1.5;
-  color-scheme: light dark;
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
   color: var(--p-text-color);
-  background: var(--p-content-background);
+  background: #0b0c0f;
+}
+
+::selection {
+  background: rgba(52, 211, 153, 0.35);
 }

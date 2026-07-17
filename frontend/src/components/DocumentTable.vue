@@ -60,7 +60,7 @@ const selectableSelection = computed({
 </script>
 
 <template>
-  <section>
+  <section class="library">
     <Message v-if="deleteError" severity="error" :closable="false">{{ deleteError }}</Message>
 
     <div v-if="loading" class="documents-loading">
@@ -78,19 +78,21 @@ const selectableSelection = computed({
         <p class="documents-empty">No documents yet. Upload one to get started.</p>
       </template>
 
-      <Column selection-mode="multiple" header-style="width: 3rem" />
+      <Column selection-mode="multiple" header-style="width: 2.5rem" />
       <Column field="filename" header="Document">
         <template #body="{ data }: { data: OracleDocument }">
-          <span>{{ data.filename }}</span>
+          <span class="document-title">{{ data.filename }}</span>
+          <div class="document-status">
+            <Tag :value="data.status" :severity="SEVERITY_BY_STATUS[data.status]">
+              <template #icon>
+                <span class="status-dot" :class="`status-dot-${data.status}`" />
+              </template>
+            </Tag>
+          </div>
           <p v-if="data.error" class="document-error">{{ data.error }}</p>
         </template>
       </Column>
-      <Column field="status" header="Status" header-style="width: 8rem">
-        <template #body="{ data }: { data: OracleDocument }">
-          <Tag :value="data.status" :severity="SEVERITY_BY_STATUS[data.status]" />
-        </template>
-      </Column>
-      <Column header-style="width: 3rem">
+      <Column header-style="width: 2.5rem">
         <template #body="{ data }: { data: OracleDocument }">
           <Button
             icon="pi pi-trash"
@@ -108,6 +110,13 @@ const selectableSelection = computed({
 </template>
 
 <style scoped>
+.library {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+}
+
 .documents-loading {
   display: flex;
   justify-content: center;
@@ -116,13 +125,71 @@ const selectableSelection = computed({
 
 .documents-empty {
   margin: 0;
+  padding: 0 12px;
   color: var(--p-text-muted-color);
+  font-size: 13px;
+}
+
+.document-title {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  /* Filenames often contain long unbroken tokens (hashes, ISBNs); without
+     this an auto-layout table widens the column to fit them instead of
+     wrapping, pushing the delete button out of the sidebar. */
+  overflow-wrap: anywhere;
+}
+
+.document-status {
+  margin-top: 7px;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-dot-ready {
+  color: #34d399;
+}
+
+.status-dot-pending {
+  color: #fbbf24;
+}
+
+.status-dot-failed {
+  color: #f87171;
 }
 
 .document-error {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
   color: var(--p-text-muted-color);
+}
+
+/* The redesign's library list has no visible column headers - it reads as a
+   simple checklist - but the header row stays in the DOM so select-all keeps
+   working. */
+:deep(.p-datatable-thead) {
+  display: none;
+}
+
+:deep(.p-datatable-table) {
+  border-collapse: collapse;
+}
+
+:deep(.p-datatable-tbody > tr) {
+  background: transparent;
+}
+
+:deep(.p-datatable-tbody > tr > td) {
+  border: none;
+  padding: 12px;
+  vertical-align: top;
 }
 
 :deep(.row-unavailable) {

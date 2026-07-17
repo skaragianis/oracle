@@ -36,9 +36,9 @@ const RESULTS: SearchResult[] = [
   },
 ]
 
-function mountPanel(selected: OracleDocument[] = []) {
+function mountPanel(selected: OracleDocument[] = [], documents: OracleDocument[] = [READY]) {
   return mount(SearchPanel, {
-    props: { selected },
+    props: { selected, documents },
     global: { plugins: [[PrimeVue, { theme: { preset: Aura } }]] },
   })
 }
@@ -65,6 +65,10 @@ function copyButton(wrapper: ReturnType<typeof mountPanel>) {
   return wrapper.findAll('button').find((button) => button.text().includes('Cop'))
 }
 
+function excerptHeads(wrapper: ReturnType<typeof mountPanel>) {
+  return wrapper.findAll('.excerpt-head')
+}
+
 describe('SearchPanel', () => {
   it('renders a card per result with its filename and page', async () => {
     searchMock.mockResolvedValue(RESULTS)
@@ -77,9 +81,40 @@ describe('SearchPanel', () => {
     expect(cards).toHaveLength(2)
     expect(cards[0].text()).toContain('first.pdf')
     expect(cards[0].text()).toContain('page 4')
-    expect(cards[0].text()).toContain('the quick brown fox')
     // The second result has no page number, so no page is claimed for it.
     expect(cards[1].text()).not.toContain('page')
+
+    // The snippet itself is collapsed until the excerpt is expanded.
+    expect(cards[0].text()).not.toContain('the quick brown fox')
+    await excerptHeads(wrapper)[0].trigger('click')
+    expect(wrapper.findAll('.p-card')[0].text()).toContain('the quick brown fox')
+  })
+
+  it('collapses an expanded excerpt again on a second click', async () => {
+    searchMock.mockResolvedValue(RESULTS)
+    const wrapper = mountPanel()
+    await runSearch(wrapper)
+
+    const head = excerptHeads(wrapper)[0]
+    await head.trigger('click')
+    expect(wrapper.findAll('.p-card')[0].text()).toContain('the quick brown fox')
+
+    await head.trigger('click')
+    expect(wrapper.findAll('.p-card')[0].text()).not.toContain('the quick brown fox')
+  })
+
+  it('starts every excerpt collapsed again on a new search, even with identical results', async () => {
+    searchMock.mockResolvedValue(RESULTS)
+    const wrapper = mountPanel()
+    await runSearch(wrapper)
+
+    await excerptHeads(wrapper)[0].trigger('click')
+    expect(wrapper.findAll('.p-card')[0].text()).toContain('the quick brown fox')
+
+    // Same query, same results returned again.
+    await runSearch(wrapper)
+
+    expect(wrapper.findAll('.p-card')[0].text()).not.toContain('the quick brown fox')
   })
 
   it('labels each result with the indexes that returned it', async () => {

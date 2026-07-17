@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Message from 'primevue/message'
 
 import DocumentUpload from './components/DocumentUpload.vue'
@@ -11,6 +11,10 @@ const documents = ref<OracleDocument[]>([])
 const selected = ref<OracleDocument[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+
+const readyCount = computed(
+  () => documents.value.filter((document) => document.status === 'ready').length,
+)
 
 const polls = new AbortController()
 const watched = new Set<number>()
@@ -80,44 +84,137 @@ onUnmounted(() => polls.abort())
 </script>
 
 <template>
-  <main class="page">
-    <header>
-      <h1>Oracle</h1>
-      <p class="tagline">Ask questions of your documents.</p>
-    </header>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-row">
+          <div class="brand-mark">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="#0B0C0F" />
+            </svg>
+          </div>
+          <h1 class="brand-name">Oracle</h1>
+        </div>
+        <p class="tagline">Ask questions of your documents.</p>
+      </div>
 
-    <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+      <div class="library-header">
+        <span class="library-label">Library</span>
+        <span class="library-count">{{ readyCount }} of {{ documents.length }} ready</span>
+      </div>
 
-    <DocumentUpload @uploaded="refresh" />
+      <DocumentUpload @uploaded="refresh" />
 
-    <DocumentTable
-      v-model:selection="selected"
-      :documents="documents"
-      :loading="loading"
-      @deleted="handleDeleted"
-    />
+      <DocumentTable
+        v-model:selection="selected"
+        :documents="documents"
+        :loading="loading"
+        class="library-list"
+        @deleted="handleDeleted"
+      />
+    </aside>
 
-    <SearchPanel :selected="selected" />
-  </main>
+    <main class="main">
+      <Message v-if="error" severity="error" :closable="false" class="page-error">{{
+        error
+      }}</Message>
+
+      <SearchPanel :selected="selected" :documents="documents" />
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.page {
+.shell {
   display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  max-width: 60rem;
-  margin: 0 auto;
-  padding: 2rem 1rem 4rem;
-  text-align: left;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
 }
 
-h1 {
+.sidebar {
+  width: 336px;
+  flex-shrink: 0;
+  background: var(--p-surface-900);
+  border-right: 1px solid var(--p-content-border-color);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.brand {
+  padding: 28px 24px 20px;
+  border-bottom: 1px solid var(--p-content-border-color);
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: linear-gradient(155deg, #34d399, #0ea5a0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.brand-name {
   margin: 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 26px;
+  letter-spacing: 0.2px;
 }
 
 .tagline {
-  margin: 0.25rem 0 0;
+  margin: 8px 0 0;
+  font-size: 13px;
   color: var(--p-text-muted-color);
+  line-height: 1.5;
+}
+
+.library-header {
+  padding: 20px 24px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.library-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--p-text-muted-color);
+}
+
+.library-count {
+  font-size: 12px;
+  color: var(--p-text-muted-color);
+}
+
+.library-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.page-error {
+  margin: 20px 40px 0;
 }
 </style>
