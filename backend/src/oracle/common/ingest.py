@@ -1,6 +1,7 @@
 import logging
 import mimetypes
 import os
+import re
 import shutil
 import sqlite3
 import uuid
@@ -209,6 +210,22 @@ def chunk_document(
     )
 
 
+_HYPHENATED_BREAK_RE = re.compile(r"(\w)-\n(\w)")
+_WHITESPACE_RUN_RE = re.compile(r"[ \t]+")
+_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n+")
+
+
+def _split_into_paragraphs(block_text: str) -> list[str]:
+    text = _HYPHENATED_BREAK_RE.sub(r"\1\2", block_text)
+    paragraphs = []
+    for raw_paragraph in _BLANK_LINE_RE.split(text):
+        collapsed = raw_paragraph.replace("\n", " ")
+        normalized = _WHITESPACE_RUN_RE.sub(" ", collapsed).strip()
+        if normalized:
+            paragraphs.append(normalized)
+    return paragraphs
+
+
 def _iter_pdf_lines(pdf_path: Path) -> Iterator[LineSegment]:
     paragraph_index = -1
     with fitz.open(pdf_path) as doc:
@@ -217,10 +234,9 @@ def _iter_pdf_lines(pdf_path: Path) -> Iterator[LineSegment]:
                 block_text = block[4]
                 if not block_text.strip():
                     continue
-                paragraph_index += 1
-
-                for raw_line in block_text.splitlines():
-                    yield LineSegment(raw_line + "\n", page_number, paragraph_index)
+                for paragraph in _split_into_paragraphs(block_text):
+                    paragraph_index += 1
+                    yield LineSegment(paragraph + "\n", page_number, paragraph_index)
 
 
 def _iter_docx_lines(docx_path: Path) -> Iterator[LineSegment]:

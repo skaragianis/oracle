@@ -16,6 +16,7 @@ from oracle.common.embeddings import ChunkToIndex, VectorIndex
 from oracle.common.ingest import (
     CHUNK_ENCODING_NAME,
     UnsupportedFileTypeError,
+    _split_into_paragraphs,
     chunk_document,
     ingest_file,
     process_document,
@@ -374,21 +375,47 @@ def test_chunk_document_returns_zero_for_blank_docx(
     assert remaining == 0
 
 
+def test_split_into_paragraphs_collapses_single_newlines_to_spaces() -> None:
+    assert _split_into_paragraphs("Hello\nworld") == ["Hello world"]
+
+
+def test_split_into_paragraphs_preserves_blank_line_boundaries() -> None:
+    assert _split_into_paragraphs("First paragraph.\n\nSecond paragraph.") == [
+        "First paragraph.",
+        "Second paragraph.",
+    ]
+
+
+def test_split_into_paragraphs_collapses_space_and_tab_runs() -> None:
+    assert _split_into_paragraphs("Hello   \t\tworld") == ["Hello world"]
+
+
+def test_split_into_paragraphs_fixes_hyphenated_line_breaks() -> None:
+    assert _split_into_paragraphs("We fore-\ncast growth.") == ["We forecast growth."]
+
+
+def test_split_into_paragraphs_skips_blank_paragraphs() -> None:
+    assert _split_into_paragraphs("\n\n  \n\n") == []
+
+
 def test_chunk_document_splits_long_pdf_into_multiple_chunks(
     tmp_path: Path, conn: sqlite3.Connection
 ) -> None:
     source = tmp_path / "long.pdf"
     encoding = tiktoken.get_encoding(CHUNK_ENCODING_NAME)
-    # Unique numbered lines make it possible to verify overlap precisely,
+    # Unique numbered paragraphs make it possible to verify overlap precisely,
     # rather than incidentally matching on repeated filler text. Each page is
-    # made tall enough that PyMuPDF doesn't clip lines past the page bottom.
-    lines_per_page = 100
-    line_numbers_by_page = [
-        range(page * lines_per_page, (page + 1) * lines_per_page) for page in range(4)
+    # made tall enough that PyMuPDF doesn't clip paragraphs past the page
+    # bottom, and each paragraph is its own insert_text call so it lands in
+    # its own text block, rather than one block of soft-wrapped lines.
+    paragraphs_per_page = 50
+    paragraph_numbers_by_page = [
+        range(page * paragraphs_per_page, (page + 1) * paragraphs_per_page)
+        for page in range(4)
     ]
     pages = [
-        ["\n".join(f"Line {i:04d} filler filler filler filler." for i in numbers)]
-        for numbers in line_numbers_by_page
+        [f"Paragraph {i:04d} filler filler filler filler." for i in numbers]
+        for numbers in paragraph_numbers_by_page
     ]
     _write_pdf(source, pages, page_height=5000)
 
