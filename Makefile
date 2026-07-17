@@ -46,7 +46,7 @@ backend-lint: ## Lint and typecheck the backend (ruff + ty)
 	cd backend && uv run ruff check && uv run ty check
 
 frontend-run: ## Run the Vite dev server on 127.0.0.1:5173 (needs server-run)
-	cd frontend && pnpm dev
+	cd frontend && pnpm dev --host
 
 frontend-test: ## Run the frontend unit tests (Vitest)
 	cd frontend && pnpm test
