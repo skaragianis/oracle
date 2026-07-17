@@ -4,6 +4,44 @@ import Aura from '@primevue/themes/aura'
 export const OracleTheme = definePreset(Aura, {
   semantic: {
     colorScheme: {
+      light: {
+        surface: {
+          0: '#FFFFFF',
+          50: '#F7F8F9',
+          100: '#EEF0F2',
+          200: '#DFE3E7',
+          300: '#C7CBD1',
+          400: '#9AA0A8',
+          500: '#6B7178',
+          600: '#4A4F56',
+          700: '#3A3E44',
+          800: '#2A2D32',
+          900: '#1D2027',
+          950: '#111318',
+        },
+        text: {
+          color: '#1D2027',
+          hoverColor: '#111318',
+          mutedColor: '#6B7178',
+          hoverMutedColor: '#4A4F56',
+        },
+        content: {
+          background: '#FFFFFF',
+          hoverBackground: '#F7F8F9',
+          borderColor: 'rgba(17,19,24,0.08)',
+        },
+        formField: {
+          background: '#FFFFFF',
+          borderColor: 'rgba(17,19,24,0.12)',
+          hoverBorderColor: 'rgba(17,19,24,0.22)',
+          placeholderColor: '#9AA0A8',
+        },
+        overlay: {
+          select: { background: '#FFFFFF', borderColor: 'rgba(17,19,24,0.08)' },
+          popover: { background: '#FFFFFF', borderColor: 'rgba(17,19,24,0.08)' },
+          modal: { background: '#FFFFFF', borderColor: 'rgba(17,19,24,0.08)' },
+        },
+      },
       dark: {
         surface: {
           0: '#F2F3F5',

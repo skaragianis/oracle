@@ -7,13 +7,21 @@
   --font-serif: 'Newsreader', serif;
   font-family: var(--font-sans);
   line-height: 1.5;
+  color-scheme: light;
+  --oracle-page-background: #ffffff;
+  --oracle-sidebar-background: #f7f8f9;
+}
+
+.oracle-dark {
   color-scheme: dark;
+  --oracle-page-background: #0b0c0f;
+  --oracle-sidebar-background: var(--p-surface-900);
 }
 
 body {
   margin: 0;
   color: var(--p-text-color);
-  background: #0b0c0f;
+  background: var(--oracle-page-background);
 }
 
 ::selection {

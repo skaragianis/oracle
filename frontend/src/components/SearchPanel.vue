@@ -332,7 +332,7 @@ async function copyForLlm() {
 }
 
 .search-scope strong {
-  color: var(--p-surface-100);
+  color: var(--p-text-color);
   font-weight: 600;
 }
 
@@ -387,7 +387,7 @@ async function copyForLlm() {
   font-family: var(--font-serif);
   font-style: italic;
   font-size: 22px;
-  color: var(--p-surface-50);
+  color: var(--p-text-color);
   margin-bottom: 10px;
 }
 
@@ -410,7 +410,7 @@ async function copyForLlm() {
   border-radius: 20px;
   border: 1px solid var(--p-content-border-color);
   background: var(--p-content-background);
-  color: var(--p-surface-50);
+  color: var(--p-text-color);
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
@@ -484,7 +484,7 @@ async function copyForLlm() {
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--p-content-hover-background);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -517,7 +517,7 @@ async function copyForLlm() {
   white-space: pre-wrap;
   font-size: 14px;
   line-height: 1.7;
-  color: var(--p-surface-50);
+  color: var(--p-text-color);
   border-left: 2px solid rgba(52, 211, 153, 0.3);
   padding-left: 14px;
 }

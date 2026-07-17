@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Message from 'primevue/message'
+import Button from 'primevue/button'
 
 import DocumentUpload from './components/DocumentUpload.vue'
 import DocumentTable from './components/DocumentTable.vue'
 import SearchPanel from './components/SearchPanel.vue'
 import { ApiError, listDocuments, waitForDocument, type OracleDocument } from './api'
+import { colorScheme, toggleColorScheme } from './colorScheme'
 
 const documents = ref<OracleDocument[]>([])
 const selected = ref<OracleDocument[]>([])
@@ -115,6 +117,17 @@ onUnmounted(() => polls.abort())
     </aside>
 
     <main class="main">
+      <div class="topbar">
+        <Button
+          class="theme-toggle"
+          :icon="colorScheme === 'dark' ? 'pi pi-sun' : 'pi pi-moon'"
+          rounded
+          :title="colorScheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+          :aria-label="colorScheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+          @click="toggleColorScheme"
+        />
+      </div>
+
       <Message v-if="error" severity="error" :closable="false" class="page-error">{{
         error
       }}</Message>
@@ -132,10 +145,27 @@ onUnmounted(() => polls.abort())
   overflow: hidden;
 }
 
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 24px 0;
+}
+
+.theme-toggle.p-button {
+  background: var(--oracle-sidebar-background);
+  border: 1px solid var(--p-content-border-color);
+  color: var(--p-text-color);
+}
+
+.theme-toggle.p-button:hover {
+  background: var(--p-content-hover-background);
+  color: var(--p-text-color);
+}
+
 .sidebar {
   width: 336px;
   flex-shrink: 0;
-  background: var(--p-surface-900);
+  background: var(--oracle-sidebar-background);
   border-right: 1px solid var(--p-content-border-color);
   display: flex;
   flex-direction: column;

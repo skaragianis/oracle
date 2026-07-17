@@ -6,10 +6,9 @@ import 'primeicons/primeicons.css'
 import './style.css'
 import App from './App.vue'
 import { OracleTheme } from './theme'
+import { initColorScheme } from './colorScheme'
 
-// The redesign is dark-only (no light variant), so the selector is applied
-// once, permanently, rather than toggled with a system preference.
-document.documentElement.classList.add('oracle-dark')
+initColorScheme()
 
 createApp(App)
   .use(PrimeVue, {
