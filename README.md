@@ -1,8 +1,11 @@
 # Oracle
 
-Upload documents then search using vector embeddings combined with BM25.
-Offers a CLI and web interface for the same backend data. Pipe your question
-and search results into your LLM of choice.
+A project to experiment with Retrieval Augmented Generation (RAG).
+
+So far it supports vector embeddings and BM25 for similarity searches. Search
+results are combined using recipricol rank fusion. Offers a CLI and web
+application operating on the same data. Not multi-user; local personal use 
+only.
 
 ## Technologies
 
@@ -44,7 +47,6 @@ make setup
 ```sh
 make
 ```
-
 
 ## License
 
