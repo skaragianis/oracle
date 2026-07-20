@@ -1,6 +1,7 @@
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import Any
 
 from oracle.common.embeddings import VectorIndex
@@ -8,6 +9,14 @@ from oracle.common.embeddings import VectorIndex
 RESULTS_PER_INDEX = 10
 FUSED_RESULT_LIMIT = 5
 RRF_K = 60
+
+
+class SearchSource(StrEnum):
+    BM25 = "bm25"
+    VECTOR = "vector"
+
+
+SEARCH_SOURCES = tuple(source.value for source in SearchSource)
 
 STOP_WORDS = frozenset(
     {
@@ -127,11 +136,17 @@ def search_vectors(
 
 
 def search_hybrid(
-    conn: sqlite3.Connection, vector_index: VectorIndex, query: str
+    conn: sqlite3.Connection,
+    vector_index: VectorIndex,
+    query: str,
+    sources: Sequence[str] = SEARCH_SOURCES,
 ) -> list[SearchResult]:
-    return reciprocal_rank_fusion(
-        [search_chunks(conn, query), search_vectors(conn, vector_index, query)]
-    )
+    rankings = []
+    if "bm25" in sources:
+        rankings.append(search_chunks(conn, query))
+    if "vector" in sources:
+        rankings.append(search_vectors(conn, vector_index, query))
+    return reciprocal_rank_fusion(rankings)
 
 
 def reciprocal_rank_fusion(
@@ -146,9 +161,7 @@ def reciprocal_rank_fusion(
             scores[result.chunk_id] = scores.get(result.chunk_id, 0.0) + 1 / (k + rank)
             if result.chunk_id in fused:
                 merged = fused[result.chunk_id].sources + result.sources
-                fused[result.chunk_id] = replace(
-                    fused[result.chunk_id], sources=merged
-                )
+                fused[result.chunk_id] = replace(fused[result.chunk_id], sources=merged)
             else:
                 fused[result.chunk_id] = result
     ordered = sorted(

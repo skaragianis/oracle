@@ -10,10 +10,11 @@ from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from oracle.common import db, documents, embeddings, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
+from oracle.common.search import SearchSource
 
 
 def allowed_origins() -> list[str]:
@@ -90,6 +91,7 @@ class UploadResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
+    sources: list[SearchSource] = Field(default=list(SearchSource), min_length=1)
 
 
 class SearchResultResponse(BaseModel):
@@ -219,7 +221,9 @@ def _delete_document(
 def _search_documents(
     conn: Connection, vector_index: VectorIndexDep, request: SearchRequest
 ) -> SearchResponse:
-    results = search.search_hybrid(conn, vector_index, request.query)
+    results = search.search_hybrid(
+        conn, vector_index, request.query, sources=request.sources
+    )
     return SearchResponse(
         results=[
             SearchResultResponse(

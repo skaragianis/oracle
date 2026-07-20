@@ -56,6 +56,24 @@ describe('api', () => {
     expect(await search('hit')).toEqual(results)
   })
 
+  it('sends the query and sources in the request body, defaulting to both sources', async () => {
+    const fetchMock = mockFetch({ json: async () => ({ results: [] }) })
+
+    await search('hit')
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(init.body as string)).toEqual({ query: 'hit', sources: ['bm25', 'vector'] })
+  })
+
+  it('sends only the requested sources', async () => {
+    const fetchMock = mockFetch({ json: async () => ({ results: [] }) })
+
+    await search('hit', ['bm25'])
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(init.body as string)).toEqual({ query: 'hit', sources: ['bm25'] })
+  })
+
   it("raises the API's detail message on a failed request", async () => {
     mockFetch({
       ok: false,

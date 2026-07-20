@@ -83,9 +83,7 @@ def test_chunks_cascade_delete_on_document_removal(tmp_path: Path) -> None:
         "INSERT INTO documents (id, filename, stored_filename, mime_type, size_bytes)"
         " VALUES (1, 'a.txt', 'uuid-a', 'text/plain', 10)"
     )
-    conn.execute(
-        "INSERT INTO chunks (doc_id, seq, text) VALUES (1, 0, 'hello')"
-    )
+    conn.execute("INSERT INTO chunks (doc_id, seq, text) VALUES (1, 0, 'hello')")
 
     conn.execute("DELETE FROM documents WHERE id = 1")
 

@@ -14,6 +14,19 @@ def main() -> None:
     _run(parser, args)
 
 
+def _parse_sources(value: str) -> list[str]:
+    sources = [source.strip() for source in value.split(",") if source.strip()]
+    if not sources:
+        raise argparse.ArgumentTypeError("--sources must not be empty")
+    for source in sources:
+        if source not in search.SEARCH_SOURCES:
+            raise argparse.ArgumentTypeError(
+                f"unknown source '{source}', expected one of "
+                f"{', '.join(search.SEARCH_SOURCES)}"
+            )
+    return sources
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="oracle-cli")
     parser.add_argument(
@@ -46,6 +59,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Delete a document by id",
     )
+    parser.add_argument(
+        "--sources",
+        metavar="SOURCES",
+        type=_parse_sources,
+        default=list(search.SEARCH_SOURCES),
+        help="Comma-separated search sources to use with --search "
+        "(default: bm25,vector)",
+    )
     return parser
 
 
@@ -63,7 +84,7 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
             _list(conn)
             return
         if args.search:
-            _search(conn, args.search)
+            _search(conn, args.search, args.sources)
             return
         if args.delete is not None:  # --delete 0 is falsy but still a passed value
             _delete(conn, args.delete)
@@ -124,14 +145,19 @@ def _list(conn: sqlite3.Connection) -> None:
     print(f"{len(documents_list)} documents found.")
 
 
-def _search(conn: sqlite3.Connection, query: str) -> None:
-    results = search.search_hybrid(conn, embeddings.open_vector_index(), query)
+def _search(conn: sqlite3.Connection, query: str, sources: list[str]) -> None:
+    results = search.search_hybrid(
+        conn, embeddings.open_vector_index(), query, sources=sources
+    )
     if not results:
         print("No results found.")
         return
     for result in results:
-        sources = "+".join(result.sources)
-        print(f"[{result.doc_id}] {result.filename} (chunk {result.seq}) [{sources}]")
+        result_sources = "+".join(result.sources)
+        print(
+            f"[{result.doc_id}] {result.filename} "
+            f"(chunk {result.seq}) [{result_sources}]"
+        )
         print(result.text[:80])
         print()
     print(f"{len(results)} result chunks found.")

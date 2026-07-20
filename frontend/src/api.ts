@@ -27,6 +27,8 @@ export interface UploadResult {
 
 export type SearchSource = 'bm25' | 'vector'
 
+export const DEFAULT_SEARCH_SOURCES: SearchSource[] = ['bm25', 'vector']
+
 export interface SearchResult {
   doc_id: number
   filename: string
@@ -124,10 +126,13 @@ export async function waitForDocument(
   throw new ApiError('Timed out waiting for the document to finish processing.')
 }
 
-export function search(query: string): Promise<SearchResult[]> {
+export function search(
+  query: string,
+  sources: SearchSource[] = DEFAULT_SEARCH_SOURCES,
+): Promise<SearchResult[]> {
   return request<{ results: SearchResult[] }>('/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, sources }),
   }).then((body) => body.results)
 }

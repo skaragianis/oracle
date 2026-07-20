@@ -364,6 +364,38 @@ def test_search_requires_a_query(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_search_with_explicit_sources_forwards_them(client: TestClient) -> None:
+    _upload(client, "source.pdf", ["The quick brown fox."])
+
+    response = client.post("/search", json={"query": "brown fox", "sources": ["bm25"]})
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results
+    assert all(result["sources"] == ["bm25"] for result in results)
+
+
+def test_search_sources_default_to_both(client: TestClient) -> None:
+    _upload(client, "source.pdf", ["The quick brown fox."])
+
+    response = client.post("/search", json={"query": "brown fox"})
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["sources"] == ["bm25", "vector"]
+
+
+def test_search_rejects_an_unknown_source(client: TestClient) -> None:
+    response = client.post("/search", json={"query": "brown fox", "sources": ["bogus"]})
+
+    assert response.status_code == 422
+
+
+def test_search_rejects_an_empty_sources_list(client: TestClient) -> None:
+    response = client.post("/search", json={"query": "brown fox", "sources": []})
+
+    assert response.status_code == 422
+
+
 def test_get_document_returns_a_ready_document(client: TestClient) -> None:
     uploaded = _upload(client, "source.pdf")
 
@@ -407,12 +439,18 @@ def test_delete_document_removes_document_upload_and_chunks(
     response = client.delete(f"/documents/{doc_id}")
 
     assert response.status_code == 204
-    assert conn.execute(
-        "SELECT COUNT(*) FROM documents WHERE id = ?", (doc_id,)
-    ).fetchone()[0] == 0
-    assert conn.execute(
-        "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (doc_id,)
-    ).fetchone()[0] == 0
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (doc_id,)
+        ).fetchone()[0]
+        == 0
+    )
     assert list((tmp_path / "uploads").iterdir()) == []
 
 

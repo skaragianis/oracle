@@ -8,6 +8,7 @@ from oracle.common.db import apply_migrations
 from oracle.common.documents import create_document
 from oracle.common.embeddings import ChunkToIndex, VectorIndex
 from oracle.common.search import (
+    SEARCH_SOURCES,
     SearchResult,
     build_fts_query,
     escape_fts_query,
@@ -289,6 +290,57 @@ def test_search_hybrid_returns_empty_when_nothing_is_indexed(
     conn: sqlite3.Connection, vector_index: VectorIndex
 ) -> None:
     assert search_hybrid(conn, vector_index, "anything") == []
+
+
+def test_search_hybrid_defaults_to_both_sources() -> None:
+    assert SEARCH_SOURCES == ("bm25", "vector")
+
+
+def test_search_hybrid_with_bm25_only_omits_vector_sourced_results(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    _create_indexed_chunks(
+        conn,
+        vector_index,
+        ["the quick brown fox", "annual financial revenue report"],
+    )
+
+    results = search_hybrid(conn, vector_index, "fox", sources=["bm25"])
+
+    assert [result.sources for result in results] == [["bm25"]]
+
+
+def test_search_hybrid_with_bm25_only_returns_empty_for_a_no_keyword_match(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
+
+    assert search_hybrid(conn, vector_index, "elephant", sources=["bm25"]) == []
+
+
+def test_search_hybrid_with_vector_only_omits_bm25_sourced_results(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    _create_indexed_chunks(
+        conn,
+        vector_index,
+        ["the quick brown fox", "annual financial revenue report"],
+    )
+
+    results = search_hybrid(conn, vector_index, "fox", sources=["vector"])
+
+    assert all(result.sources == ["vector"] for result in results)
+
+
+def test_search_hybrid_with_both_sources_merges_them(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    _, chunks = _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
+
+    results = search_hybrid(conn, vector_index, "fox", sources=["bm25", "vector"])
+
+    assert results[0].chunk_id == chunks[0].chunk_id
+    assert results[0].sources == ["bm25", "vector"]
 
 
 def _result(chunk_id: int, sources: list[str]) -> SearchResult:

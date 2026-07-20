@@ -3,11 +3,13 @@ import { computed, ref } from 'vue'
 import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
+import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import Tag from 'primevue/tag'
 
 import {
   ApiError,
+  DEFAULT_SEARCH_SOURCES,
   search,
   type OracleDocument,
   type SearchResult,
@@ -21,6 +23,8 @@ const SOURCE_LABELS: Record<SearchSource, string> = {
   vector: 'Vector',
 }
 
+const SOURCE_OPTIONS = Object.keys(SOURCE_LABELS) as SearchSource[]
+
 const EXAMPLE_PROMPTS = [
   'Summarize the key points',
   'What are the main risks or limitations?',
@@ -32,6 +36,7 @@ const COPIED_FEEDBACK_MS = 2_000
 const props = defineProps<{ selected: OracleDocument[]; documents: OracleDocument[] }>()
 
 const query = ref('')
+const selectedSources = ref<SearchSource[]>([...DEFAULT_SEARCH_SOURCES])
 const searching = ref(false)
 const error = ref<string | null>(null)
 const results = ref<SearchResult[] | null>(null)
@@ -44,7 +49,10 @@ let copiedTimer: ReturnType<typeof setTimeout> | undefined
 // collapsed, even when the same chunks come back again.
 const expandedIds = ref<Set<number>>(new Set())
 
-const canSearch = computed(() => query.value.trim().length > 0 && !searching.value)
+const canSearch = computed(
+  () =>
+    query.value.trim().length > 0 && selectedSources.value.length > 0 && !searching.value,
+)
 
 const readyCount = computed(
   () => props.documents.filter((document) => document.status === 'ready').length,
@@ -81,7 +89,7 @@ async function runSearch() {
   copied.value = false
   expandedIds.value = new Set()
   try {
-    results.value = await search(query.value)
+    results.value = await search(query.value, selectedSources.value)
     submittedQuery.value = query.value.trim()
   } catch (exception) {
     results.value = null
@@ -143,6 +151,13 @@ async function copyForLlm() {
           :disabled="!canSearch"
         />
       </form>
+
+      <div class="source-picker">
+        <label v-for="source in SOURCE_OPTIONS" :key="source" class="source-option">
+          <Checkbox v-model="selectedSources" :value="source" />
+          {{ SOURCE_LABELS[source] }}
+        </label>
+      </div>
 
       <p v-if="scopedResults !== null" class="search-scope">
         Searching
@@ -323,6 +338,21 @@ async function copyForLlm() {
 .ask-button.p-button:not(:disabled):hover {
   background: linear-gradient(155deg, #34d399, #0ea5a0);
   filter: brightness(1.06);
+}
+
+.source-picker {
+  display: flex;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.source-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
 }
 
 .search-scope {

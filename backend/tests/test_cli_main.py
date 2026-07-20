@@ -6,7 +6,7 @@ import fitz
 import pytest
 from conftest import make_vector_index
 
-from oracle.cli.main import main
+from oracle.cli.main import _build_parser, main
 from oracle.common import db, embeddings, ingest
 from oracle.common.embeddings import VectorIndex
 
@@ -246,6 +246,90 @@ def test_main_search_with_only_stop_words_prints_no_results(
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
     monkeypatch.setattr(sys, "argv", ["oracle-cli", "--search", "the"])
 
+    main()
+
+    captured = capsys.readouterr()
+    assert "No results found." in captured.out
+
+
+def test_build_parser_defaults_sources_to_bm25_and_vector() -> None:
+    parser = _build_parser()
+
+    args = parser.parse_args([])
+
+    assert args.sources == ["bm25", "vector"]
+
+
+def test_build_parser_parses_a_single_source() -> None:
+    parser = _build_parser()
+
+    args = parser.parse_args(["--sources", "bm25"])
+
+    assert args.sources == ["bm25"]
+
+
+def test_build_parser_parses_comma_separated_sources_with_whitespace() -> None:
+    parser = _build_parser()
+
+    args = parser.parse_args(["--sources", " bm25 , vector "])
+
+    assert args.sources == ["bm25", "vector"]
+
+
+def test_build_parser_rejects_an_unknown_source() -> None:
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--sources", "bogus"])
+
+
+def test_build_parser_rejects_an_empty_sources_value() -> None:
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--sources", ""])
+
+
+def test_main_search_with_bm25_only_omits_vector_only_results(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "report.pdf"
+    pdf_doc = fitz.open()
+    pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
+    pdf_doc.save(source)
+    pdf_doc.close()
+    uploads_dir = tmp_path / "uploads"
+    db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--add", str(source)])
+    main()
+
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "-s", "quick", "--sources", "bm25"])
+    main()
+
+    captured = capsys.readouterr()
+    assert "[1] report.pdf (chunk 0) [bm25]" in captured.out
+
+
+def test_main_search_with_bm25_only_and_no_keyword_match_prints_no_results(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "report.pdf"
+    pdf_doc = fitz.open()
+    pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
+    pdf_doc.save(source)
+    pdf_doc.close()
+    uploads_dir = tmp_path / "uploads"
+    db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--add", str(source)])
+    main()
+
+    monkeypatch.setattr(
+        sys, "argv", ["oracle-cli", "-s", "elephant", "--sources", "bm25"]
+    )
     main()
 
     captured = capsys.readouterr()

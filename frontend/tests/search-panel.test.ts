@@ -76,7 +76,7 @@ describe('SearchPanel', () => {
 
     await runSearch(wrapper)
 
-    expect(searchMock).toHaveBeenCalledWith('brown')
+    expect(searchMock).toHaveBeenCalledWith('brown', ['bm25', 'vector'])
     const cards = wrapper.findAll('.p-card')
     expect(cards).toHaveLength(2)
     expect(cards[0].text()).toContain('first.pdf')
@@ -232,5 +232,50 @@ describe('SearchPanel', () => {
 
     expect(wrapper.text()).toContain('Could not reach the Oracle API.')
     expect(wrapper.findAll('.p-card')).toHaveLength(0)
+  })
+})
+
+describe('source selection', () => {
+  function sourceCheckboxes(wrapper: ReturnType<typeof mountPanel>) {
+    return wrapper.findAll('input.p-checkbox-input')
+  }
+
+  it('renders a checkbox for each source, both checked by default', async () => {
+    const wrapper = mountPanel()
+
+    const checkboxes = sourceCheckboxes(wrapper)
+    expect(checkboxes).toHaveLength(2)
+    expect(checkboxes.every((checkbox) => (checkbox.element as HTMLInputElement).checked)).toBe(
+      true,
+    )
+    expect(wrapper.text()).toContain('BM25')
+    expect(wrapper.text()).toContain('Vector')
+  })
+
+  it('disables the Ask button when both sources are unchecked', async () => {
+    searchMock.mockResolvedValue([])
+    const wrapper = mountPanel()
+    await wrapper.find('input').setValue('brown')
+
+    const [bm25, vector] = sourceCheckboxes(wrapper)
+    await bm25.setValue(false)
+    await vector.setValue(false)
+
+    expect(wrapper.find('.ask-button').attributes('disabled')).toBeDefined()
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(searchMock).not.toHaveBeenCalled()
+  })
+
+  it('sends only the checked sources to search', async () => {
+    searchMock.mockResolvedValue([])
+    const wrapper = mountPanel()
+    const [bm25] = sourceCheckboxes(wrapper)
+    await bm25.setValue(false)
+
+    await runSearch(wrapper)
+
+    expect(searchMock).toHaveBeenCalledWith('brown', ['vector'])
   })
 })
