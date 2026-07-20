@@ -84,22 +84,38 @@ def escape_fts_query(query: str) -> str:
 
 
 def search_chunks(
-    conn: sqlite3.Connection, query: str, limit: int = RESULTS_PER_INDEX
+    conn: sqlite3.Connection,
+    query: str,
+    limit: int = RESULTS_PER_INDEX,
+    document_ids: Sequence[int] | None = None,
 ) -> list[SearchResult]:
+    if document_ids is not None and not document_ids:
+        return []
+
     fts_query = build_fts_query(query)
     if fts_query is None:
         return []
 
+    params: list[Any] = [fts_query]
+    doc_filter = ""
+    if document_ids:
+        placeholders = ", ".join("?" for _ in document_ids)
+        doc_filter = f" AND chunks.doc_id IN ({placeholders})"
+        params.extend(document_ids)
+    params.append(limit)
+
+    # A failed-during-embedding or interrupted-mid-ingest document can still have
+    # committed chunks; only 'ready' documents' chunks are eligible to surface.
     rows = conn.execute(
         "SELECT documents.id, documents.filename, chunks.id, chunks.seq, chunks.text, "
         "chunks.page_number "
         "FROM chunks_fts "
         "JOIN chunks ON chunks.id = chunks_fts.rowid "
         "JOIN documents ON documents.id = chunks.doc_id "
-        "WHERE chunks_fts MATCH ? "
+        f"WHERE chunks_fts MATCH ?{doc_filter} AND documents.status = 'ready' "
         "ORDER BY chunks_fts.rank "
         "LIMIT ?",
-        (fts_query, limit),
+        params,
     ).fetchall()
     return [_row_to_result(row, source="bm25") for row in rows]
 
@@ -109,11 +125,12 @@ def search_vectors(
     vector_index: VectorIndex,
     query: str,
     limit: int = RESULTS_PER_INDEX,
+    document_ids: Sequence[int] | None = None,
 ) -> list[SearchResult]:
     if not query.strip():
         return []
 
-    matches = vector_index.search(query, limit)
+    matches = vector_index.search(query, limit, doc_ids=document_ids)
     if not matches:
         return []
 
@@ -123,7 +140,7 @@ def search_vectors(
         "chunks.page_number "
         "FROM chunks "
         "JOIN documents ON documents.id = chunks.doc_id "
-        f"WHERE chunks.id IN ({placeholders})",
+        f"WHERE chunks.id IN ({placeholders}) AND documents.status = 'ready'",
         [match.chunk_id for match in matches],
     ).fetchall()
     results_by_chunk_id = {row[2]: _row_to_result(row, source="vector") for row in rows}
@@ -140,12 +157,18 @@ def search_hybrid(
     vector_index: VectorIndex,
     query: str,
     sources: Sequence[str] = SEARCH_SOURCES,
+    document_ids: Sequence[int] | None = None,
 ) -> list[SearchResult]:
+    if document_ids is not None and not document_ids:
+        return []
+
     rankings = []
     if "bm25" in sources:
-        rankings.append(search_chunks(conn, query))
+        rankings.append(search_chunks(conn, query, document_ids=document_ids))
     if "vector" in sources:
-        rankings.append(search_vectors(conn, vector_index, query))
+        rankings.append(
+            search_vectors(conn, vector_index, query, document_ids=document_ids)
+        )
     return reciprocal_rank_fusion(rankings)
 
 

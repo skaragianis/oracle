@@ -61,11 +61,18 @@ class VectorIndex:
     def delete_document(self, doc_id: int) -> None:
         self._collection.delete(where={"doc_id": doc_id})
 
-    def search(self, query: str, limit: int) -> list[VectorMatch]:
+    def search(
+        self, query: str, limit: int, doc_ids: Sequence[int] | None = None
+    ) -> list[VectorMatch]:
+        if doc_ids is not None and not doc_ids:
+            return []
+
         vector = next(iter(self._embedder.query_embed(query)))
+        where = {"doc_id": {"$in": list(doc_ids)}} if doc_ids else None
         result = self._collection.query(
             query_embeddings=[[float(value) for value in vector]],
             n_results=limit,
+            where=where,
             include=["distances"],
         )
         distances = result["distances"]

@@ -384,6 +384,47 @@ def test_search_sources_default_to_both(client: TestClient) -> None:
     assert response.json()["results"][0]["sources"] == ["bm25", "vector"]
 
 
+def test_search_with_document_ids_restricts_results_to_those_documents(
+    client: TestClient,
+) -> None:
+    first = _upload(client, "first.pdf", ["The quick brown fox."])
+    _upload(client, "second.pdf", ["Another quick brown fox report."])
+
+    response = client.post(
+        "/search",
+        json={"query": "fox", "document_ids": [first.json()["id"]]},
+    )
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results
+    assert all(result["doc_id"] == first.json()["id"] for result in results)
+
+
+def test_search_omitting_document_ids_searches_all_documents(
+    client: TestClient,
+) -> None:
+    first = _upload(client, "first.pdf", ["The quick brown fox."])
+    second = _upload(client, "second.pdf", ["Another quick brown fox report."])
+
+    response = client.post("/search", json={"query": "fox"})
+
+    assert response.status_code == 200
+    doc_ids = {result["doc_id"] for result in response.json()["results"]}
+    assert doc_ids == {first.json()["id"], second.json()["id"]}
+
+
+def test_search_with_explicit_empty_document_ids_returns_no_results(
+    client: TestClient,
+) -> None:
+    _upload(client, "source.pdf", ["The quick brown fox."])
+
+    response = client.post("/search", json={"query": "fox", "document_ids": []})
+
+    assert response.status_code == 200
+    assert response.json() == {"results": []}
+
+
 def test_search_rejects_an_unknown_source(client: TestClient) -> None:
     response = client.post("/search", json={"query": "brown fox", "sources": ["bogus"]})
 

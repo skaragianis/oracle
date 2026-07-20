@@ -27,6 +27,18 @@ def _parse_sources(value: str) -> list[str]:
     return sources
 
 
+def _parse_document_ids(value: str) -> list[int]:
+    tokens = [token.strip() for token in value.split(",") if token.strip()]
+    if not tokens:
+        raise argparse.ArgumentTypeError("--documents must not be empty")
+    try:
+        return [int(token) for token in tokens]
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--documents must be a comma-separated list of integers, got '{value}'"
+        )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="oracle-cli")
     parser.add_argument(
@@ -67,6 +79,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Comma-separated search sources to use with --search "
         "(default: bm25,vector)",
     )
+    parser.add_argument(
+        "--documents",
+        metavar="DOC_IDS",
+        type=_parse_document_ids,
+        default=None,
+        help="Comma-separated document ids to search with --search "
+        "(default: all ready documents)",
+    )
     return parser
 
 
@@ -84,7 +104,7 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
             _list(conn)
             return
         if args.search:
-            _search(conn, args.search, args.sources)
+            _search(conn, args.search, args.sources, args.documents)
             return
         if args.delete is not None:  # --delete 0 is falsy but still a passed value
             _delete(conn, args.delete)
@@ -145,9 +165,24 @@ def _list(conn: sqlite3.Connection) -> None:
     print(f"{len(documents_list)} documents found.")
 
 
-def _search(conn: sqlite3.Connection, query: str, sources: list[str]) -> None:
+def _search(
+    conn: sqlite3.Connection,
+    query: str,
+    sources: list[str],
+    document_ids: list[int] | None,
+) -> None:
+    if document_ids is None:
+        document_ids = [
+            document.id
+            for document in documents.list_documents(conn)
+            if document.status == "ready"
+        ]
     results = search.search_hybrid(
-        conn, embeddings.open_vector_index(), query, sources=sources
+        conn,
+        embeddings.open_vector_index(),
+        query,
+        sources=sources,
+        document_ids=document_ids,
     )
     if not results:
         print("No results found.")

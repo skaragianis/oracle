@@ -92,6 +92,7 @@ class UploadResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     sources: list[SearchSource] = Field(default=list(SearchSource), min_length=1)
+    document_ids: list[int] | None = None
 
 
 class SearchResultResponse(BaseModel):
@@ -222,7 +223,11 @@ def _search_documents(
     conn: Connection, vector_index: VectorIndexDep, request: SearchRequest
 ) -> SearchResponse:
     results = search.search_hybrid(
-        conn, vector_index, request.query, sources=request.sources
+        conn,
+        vector_index,
+        request.query,
+        sources=request.sources,
+        document_ids=request.document_ids,
     )
     return SearchResponse(
         results=[

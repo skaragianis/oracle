@@ -5,7 +5,11 @@ import pytest
 
 from oracle.common.chunks import create_chunk
 from oracle.common.db import apply_migrations
-from oracle.common.documents import create_document
+from oracle.common.documents import (
+    create_document,
+    mark_document_failed,
+    mark_document_ready,
+)
 from oracle.common.embeddings import ChunkToIndex, VectorIndex
 from oracle.common.search import (
     SEARCH_SOURCES,
@@ -45,6 +49,7 @@ def test_search_chunks_finds_matching_chunk_with_document(
     chunk_id = create_chunk(
         conn, doc_id=doc_id, seq=0, text="the quick brown fox", page_number=3
     )
+    mark_document_ready(conn, doc_id)
 
     results = search_chunks(conn, "quick")
 
@@ -71,6 +76,7 @@ def test_search_chunks_ignores_non_matching_chunks(conn: sqlite3.Connection) -> 
     )
     create_chunk(conn, doc_id=doc_id, seq=0, text="the quick brown fox")
     create_chunk(conn, doc_id=doc_id, seq=1, text="an unrelated sentence")
+    mark_document_ready(conn, doc_id)
 
     results = search_chunks(conn, "fox")
 
@@ -87,6 +93,7 @@ def test_search_chunks_orders_by_relevance(conn: sqlite3.Connection) -> None:
     )
     create_chunk(conn, doc_id=doc_id, seq=0, text="fox fox fox fox fox")
     create_chunk(conn, doc_id=doc_id, seq=1, text="a fox appears once")
+    mark_document_ready(conn, doc_id)
 
     results = search_chunks(conn, "fox")
 
@@ -104,6 +111,7 @@ def test_search_chunks_handles_query_with_special_fts5_characters(
         size_bytes=10,
     )
     create_chunk(conn, doc_id=doc_id, seq=0, text="version 10.1 was released")
+    mark_document_ready(conn, doc_id)
 
     results = search_chunks(conn, "10.1")
 
@@ -159,11 +167,23 @@ def test_build_fts_query_escapes_special_characters_per_term() -> None:
     assert build_fts_query("10.1 fox") == '"10.1" OR "fox"'
 
 
+def _set_document_status(conn: sqlite3.Connection, doc_id: int, status: str) -> None:
+    if status == "ready":
+        mark_document_ready(conn, doc_id)
+    elif status == "failed":
+        mark_document_failed(conn, doc_id, "boom")
+    elif status == "pending":
+        pass
+    else:
+        raise ValueError(status)
+
+
 def _create_indexed_chunks(
     conn: sqlite3.Connection,
     vector_index: VectorIndex,
     texts: list[str],
     filename: str = "report.pdf",
+    status: str = "ready",
 ) -> tuple[int, list[ChunkToIndex]]:
     doc_id = create_document(
         conn,
@@ -179,6 +199,30 @@ def _create_indexed_chunks(
         for seq, text in enumerate(texts)
     ]
     vector_index.index_chunks(doc_id, chunks)
+    _set_document_status(conn, doc_id, status)
+    return doc_id, chunks
+
+
+def _create_indexed_chunks_no_vectors(
+    conn: sqlite3.Connection,
+    texts: list[str],
+    filename: str = "report.pdf",
+    status: str = "ready",
+) -> tuple[int, list[ChunkToIndex]]:
+    doc_id = create_document(
+        conn,
+        filename=filename,
+        stored_filename=f"uuid-{filename}",
+        mime_type="application/pdf",
+        size_bytes=10,
+    )
+    chunks = [
+        ChunkToIndex(
+            chunk_id=create_chunk(conn, doc_id=doc_id, seq=seq, text=text), text=text
+        )
+        for seq, text in enumerate(texts)
+    ]
+    _set_document_status(conn, doc_id, status)
     return doc_id, chunks
 
 
@@ -192,6 +236,7 @@ def test_search_chunks_limits_results(conn: sqlite3.Connection) -> None:
     )
     for seq in range(15):
         create_chunk(conn, doc_id=doc_id, seq=seq, text=f"fox sighting number {seq}")
+    mark_document_ready(conn, doc_id)
 
     assert len(search_chunks(conn, "fox")) == 10
     assert len(search_chunks(conn, "fox", limit=3)) == 3
@@ -332,6 +377,111 @@ def test_search_hybrid_with_vector_only_omits_bm25_sourced_results(
     assert all(result.sources == ["vector"] for result in results)
 
 
+def test_search_chunks_narrows_to_document_ids(conn: sqlite3.Connection) -> None:
+    doc_id_one, _ = _create_indexed_chunks_no_vectors(conn, ["the quick brown fox"])
+    doc_id_two, _ = _create_indexed_chunks_no_vectors(
+        conn, ["another fox report"], filename="other.pdf"
+    )
+
+    results = search_chunks(conn, "fox", document_ids=[doc_id_one])
+
+    assert [result.doc_id for result in results] == [doc_id_one]
+    assert doc_id_two not in [result.doc_id for result in results]
+
+
+def test_search_chunks_with_none_document_ids_searches_all(
+    conn: sqlite3.Connection,
+) -> None:
+    doc_id_one, _ = _create_indexed_chunks_no_vectors(conn, ["the quick brown fox"])
+    doc_id_two, _ = _create_indexed_chunks_no_vectors(
+        conn, ["another fox report"], filename="other.pdf"
+    )
+
+    results = search_chunks(conn, "fox", document_ids=None)
+
+    assert {result.doc_id for result in results} == {doc_id_one, doc_id_two}
+
+
+def test_search_chunks_with_explicit_empty_document_ids_returns_empty(
+    conn: sqlite3.Connection,
+) -> None:
+    _create_indexed_chunks_no_vectors(conn, ["the quick brown fox"])
+
+    assert search_chunks(conn, "fox", document_ids=[]) == []
+
+
+def test_search_vectors_narrows_to_document_ids(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    doc_id_one, _ = _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
+    doc_id_two, _ = _create_indexed_chunks(
+        conn, vector_index, ["another fox report"], filename="other.pdf"
+    )
+
+    results = search_vectors(conn, vector_index, "fox", document_ids=[doc_id_one])
+
+    assert [result.doc_id for result in results] == [doc_id_one]
+    assert doc_id_two not in [result.doc_id for result in results]
+
+
+def test_search_vectors_with_none_document_ids_searches_all(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    doc_id_one, _ = _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
+    doc_id_two, _ = _create_indexed_chunks(
+        conn, vector_index, ["another fox report"], filename="other.pdf"
+    )
+
+    results = search_vectors(conn, vector_index, "fox", document_ids=None)
+
+    assert {result.doc_id for result in results} == {doc_id_one, doc_id_two}
+
+
+def test_search_vectors_with_explicit_empty_document_ids_returns_empty(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
+
+    assert search_vectors(conn, vector_index, "fox", document_ids=[]) == []
+
+
+def test_search_hybrid_narrows_to_document_ids(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    doc_id_one, chunks_one = _create_indexed_chunks(
+        conn, vector_index, ["the quick brown fox"]
+    )
+    doc_id_two, _ = _create_indexed_chunks(
+        conn, vector_index, ["another fox report"], filename="other.pdf"
+    )
+
+    results = search_hybrid(conn, vector_index, "fox", document_ids=[doc_id_one])
+
+    assert [result.chunk_id for result in results] == [chunks_one[0].chunk_id]
+    assert doc_id_two not in [result.doc_id for result in results]
+
+
+def test_search_hybrid_with_none_document_ids_searches_all(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    doc_id_one, _ = _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
+    doc_id_two, _ = _create_indexed_chunks(
+        conn, vector_index, ["another fox report"], filename="other.pdf"
+    )
+
+    results = search_hybrid(conn, vector_index, "fox", document_ids=None)
+
+    assert {result.doc_id for result in results} == {doc_id_one, doc_id_two}
+
+
+def test_search_hybrid_with_explicit_empty_document_ids_returns_empty(
+    conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    _create_indexed_chunks(conn, vector_index, ["the quick brown fox"])
+
+    assert search_hybrid(conn, vector_index, "fox", document_ids=[]) == []
+
+
 def test_search_hybrid_with_both_sources_merges_them(
     conn: sqlite3.Connection, vector_index: VectorIndex
 ) -> None:
@@ -341,6 +491,103 @@ def test_search_hybrid_with_both_sources_merges_them(
 
     assert results[0].chunk_id == chunks[0].chunk_id
     assert results[0].sources == ["bm25", "vector"]
+
+
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_search_chunks_excludes_non_ready_documents(
+    conn: sqlite3.Connection, status: str
+) -> None:
+    ready_doc_id, _ = _create_indexed_chunks_no_vectors(
+        conn, ["a fox sighting"], filename="ready.pdf"
+    )
+    non_ready_doc_id, _ = _create_indexed_chunks_no_vectors(
+        conn, ["another fox sighting"], filename="not-ready.pdf", status=status
+    )
+
+    results = search_chunks(conn, "fox")
+
+    assert [result.doc_id for result in results] == [ready_doc_id]
+    assert non_ready_doc_id not in [result.doc_id for result in results]
+
+
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_search_chunks_excludes_non_ready_documents_even_when_requested_explicitly(
+    conn: sqlite3.Connection, status: str
+) -> None:
+    non_ready_doc_id, _ = _create_indexed_chunks_no_vectors(
+        conn, ["a fox sighting"], filename="not-ready.pdf", status=status
+    )
+
+    assert search_chunks(conn, "fox", document_ids=[non_ready_doc_id]) == []
+
+
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_search_vectors_excludes_non_ready_documents(
+    conn: sqlite3.Connection, vector_index: VectorIndex, status: str
+) -> None:
+    ready_doc_id, _ = _create_indexed_chunks(
+        conn, vector_index, ["a fox sighting"], filename="ready.pdf"
+    )
+    non_ready_doc_id, _ = _create_indexed_chunks(
+        conn,
+        vector_index,
+        ["another fox sighting"],
+        filename="not-ready.pdf",
+        status=status,
+    )
+
+    results = search_vectors(conn, vector_index, "fox")
+
+    assert [result.doc_id for result in results] == [ready_doc_id]
+    assert non_ready_doc_id not in [result.doc_id for result in results]
+
+
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_search_vectors_excludes_non_ready_documents_even_when_requested_explicitly(
+    conn: sqlite3.Connection, vector_index: VectorIndex, status: str
+) -> None:
+    non_ready_doc_id, _ = _create_indexed_chunks(
+        conn, vector_index, ["a fox sighting"], filename="not-ready.pdf", status=status
+    )
+
+    assert (
+        search_vectors(conn, vector_index, "fox", document_ids=[non_ready_doc_id])
+        == []
+    )
+
+
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_search_hybrid_excludes_non_ready_documents(
+    conn: sqlite3.Connection, vector_index: VectorIndex, status: str
+) -> None:
+    ready_doc_id, ready_chunks = _create_indexed_chunks(
+        conn, vector_index, ["a fox sighting"], filename="ready.pdf"
+    )
+    non_ready_doc_id, _ = _create_indexed_chunks(
+        conn,
+        vector_index,
+        ["another fox sighting"],
+        filename="not-ready.pdf",
+        status=status,
+    )
+
+    results = search_hybrid(conn, vector_index, "fox")
+
+    assert [result.chunk_id for result in results] == [ready_chunks[0].chunk_id]
+    assert non_ready_doc_id not in [result.doc_id for result in results]
+
+
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_search_hybrid_excludes_non_ready_documents_even_when_requested_explicitly(
+    conn: sqlite3.Connection, vector_index: VectorIndex, status: str
+) -> None:
+    non_ready_doc_id, _ = _create_indexed_chunks(
+        conn, vector_index, ["a fox sighting"], filename="not-ready.pdf", status=status
+    )
+
+    assert (
+        search_hybrid(conn, vector_index, "fox", document_ids=[non_ready_doc_id]) == []
+    )
 
 
 def _result(chunk_id: int, sources: list[str]) -> SearchResult:

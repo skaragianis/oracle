@@ -336,6 +336,73 @@ def test_main_search_with_bm25_only_and_no_keyword_match_prints_no_results(
     assert "No results found." in captured.out
 
 
+def test_build_parser_defaults_documents_to_none() -> None:
+    parser = _build_parser()
+
+    args = parser.parse_args([])
+
+    assert args.documents is None
+
+
+def test_build_parser_parses_comma_separated_document_ids() -> None:
+    parser = _build_parser()
+
+    args = parser.parse_args(["--documents", "2,3"])
+
+    assert args.documents == [2, 3]
+
+
+def test_build_parser_rejects_a_non_integer_document_id() -> None:
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--documents", "x"])
+
+
+def test_build_parser_rejects_an_empty_documents_value() -> None:
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--documents", ""])
+
+
+def test_main_search_without_documents_flag_excludes_non_ready_documents(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "report.pdf"
+    pdf_doc = fitz.open()
+    pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
+    pdf_doc.save(source)
+    pdf_doc.close()
+    uploads_dir = tmp_path / "uploads"
+    db_path = tmp_path / "oracle.db"
+    monkeypatch.setattr(ingest, "DEFAULT_UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--add", str(source)])
+    main()
+    capsys.readouterr()
+
+    conn = sqlite3.connect(db_path)
+    stuck_doc_id = conn.execute(
+        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes, "
+        "status) VALUES (?, ?, ?, ?, ?)",
+        ("stuck.pdf", "uuid-stuck.pdf", "application/pdf", 10, "pending"),
+    ).lastrowid
+    conn.execute(
+        "INSERT INTO chunks (doc_id, seq, text, page_number) VALUES (?, ?, ?, ?)",
+        (stuck_doc_id, 0, "the quick brown fox stuck in review", None),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "-s", "quick"])
+    main()
+
+    captured = capsys.readouterr()
+    assert "[1] report.pdf" in captured.out
+    assert "stuck.pdf" not in captured.out
+
+
 def test_main_delete_removes_upload_document_and_chunks(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
