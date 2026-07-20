@@ -9,6 +9,12 @@ from oracle.common.ingest import UnsupportedFileTypeError
 
 
 def main() -> None:
+    parser = _build_parser()
+    args = parser.parse_args()
+    _run(parser, args)
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="oracle-cli")
     parser.add_argument(
         "--reset",
@@ -40,8 +46,10 @@ def main() -> None:
         type=int,
         help="Delete a document by id",
     )
-    args = parser.parse_args()
+    return parser
 
+
+def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if args.reset:
         _reset()
         return
