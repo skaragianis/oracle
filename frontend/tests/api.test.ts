@@ -53,16 +53,20 @@ describe('api', () => {
     ]
     mockFetch({ json: async () => ({ results }) })
 
-    expect(await search('hit')).toEqual(results)
+    expect(await search('hit', ['bm25', 'vector'], [1])).toEqual(results)
   })
 
-  it('sends the query and sources in the request body, defaulting to both sources', async () => {
+  it('sends the query, sources, and document ids in the request body, defaulting to both sources and no documents', async () => {
     const fetchMock = mockFetch({ json: async () => ({ results: [] }) })
 
     await search('hit')
 
     const [, init] = fetchMock.mock.calls[0]
-    expect(JSON.parse(init.body as string)).toEqual({ query: 'hit', sources: ['bm25', 'vector'] })
+    expect(JSON.parse(init.body as string)).toEqual({
+      query: 'hit',
+      sources: ['bm25', 'vector'],
+      document_ids: [],
+    })
   })
 
   it('sends only the requested sources', async () => {
@@ -71,7 +75,24 @@ describe('api', () => {
     await search('hit', ['bm25'])
 
     const [, init] = fetchMock.mock.calls[0]
-    expect(JSON.parse(init.body as string)).toEqual({ query: 'hit', sources: ['bm25'] })
+    expect(JSON.parse(init.body as string)).toEqual({
+      query: 'hit',
+      sources: ['bm25'],
+      document_ids: [],
+    })
+  })
+
+  it('sends the selected document ids', async () => {
+    const fetchMock = mockFetch({ json: async () => ({ results: [] }) })
+
+    await search('hit', ['bm25', 'vector'], [1, 2])
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(init.body as string)).toEqual({
+      query: 'hit',
+      sources: ['bm25', 'vector'],
+      document_ids: [1, 2],
+    })
   })
 
   it("raises the API's detail message on a failed request", async () => {

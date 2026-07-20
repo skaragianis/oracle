@@ -129,10 +129,11 @@ export async function waitForDocument(
 export function search(
   query: string,
   sources: SearchSource[] = DEFAULT_SEARCH_SOURCES,
+  documentIds: number[] = [],
 ): Promise<SearchResult[]> {
   return request<{ results: SearchResult[] }>('/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, sources }),
+    body: JSON.stringify({ query, sources, document_ids: documentIds }),
   }).then((body) => body.results)
 }

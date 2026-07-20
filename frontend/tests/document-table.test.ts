@@ -14,12 +14,17 @@ const PENDING: OracleDocument = {
   status: 'pending',
   error: null,
 }
+const READY_2: OracleDocument = { id: 3, filename: 'ready-two.pdf', status: 'ready', error: null }
 
-function mountTable(documents = [READY, PENDING], loading = false) {
+function mountTable(documents = [READY, PENDING], loading = false, selection: OracleDocument[] = []) {
   return mount(DocumentTable, {
-    props: { documents, loading, selection: [], 'onUpdate:selection': () => {} },
+    props: { documents, loading, selection, 'onUpdate:selection': () => {} },
     global: { plugins: [[PrimeVue, { theme: { preset: Aura } }]] },
   })
+}
+
+function selectAllCheckbox(wrapper: ReturnType<typeof mountTable>) {
+  return wrapper.find('.select-all-row input.p-checkbox-input')
 }
 
 /** The latest value the table pushed back through v-model:selection. */
@@ -71,12 +76,44 @@ describe('DocumentTable', () => {
     expect(rows[1].classes()).toContain('row-unavailable')
   })
 
-  it('select-all picks up only the ready documents', async () => {
-    const wrapper = mountTable()
+  it('select-all checks all ready documents and skips unready ones', async () => {
+    const wrapper = mountTable([READY, PENDING, READY_2])
 
-    await wrapper.find('thead input.p-checkbox-input').trigger('change')
+    await selectAllCheckbox(wrapper).trigger('change')
 
-    expect(latestSelection(wrapper)).toEqual([READY])
+    expect(latestSelection(wrapper)).toEqual([READY, READY_2])
+  })
+
+  it('select-all clears the selection when already fully checked', async () => {
+    const wrapper = mountTable([READY, PENDING, READY_2], false, [READY, READY_2])
+
+    await selectAllCheckbox(wrapper).trigger('change')
+
+    expect(latestSelection(wrapper)).toEqual([])
+  })
+
+  it('select-all reflects a fully checked selection', () => {
+    const wrapper = mountTable([READY, PENDING, READY_2], false, [READY, READY_2])
+
+    expect((selectAllCheckbox(wrapper).element as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('shows select-all as indeterminate when only some ready documents are selected', () => {
+    const wrapper = mountTable([READY, PENDING, READY_2], false, [READY])
+
+    expect((selectAllCheckbox(wrapper).element as HTMLInputElement).indeterminate).toBe(true)
+  })
+
+  it('disables select-all when there are no ready documents', () => {
+    const wrapper = mountTable([PENDING])
+
+    expect((selectAllCheckbox(wrapper).element as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('hides select-all when there are no documents at all', () => {
+    const wrapper = mountTable([])
+
+    expect(wrapper.find('.select-all-row').exists()).toBe(false)
   })
 
   it('deletes a document and emits deleted on success', async () => {

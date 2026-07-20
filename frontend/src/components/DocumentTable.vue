@@ -4,12 +4,13 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 
 import { ApiError, deleteDocument, type DocumentStatus, type OracleDocument } from '../api'
 
-defineProps<{ documents: OracleDocument[]; loading: boolean }>()
+const props = defineProps<{ documents: OracleDocument[]; loading: boolean }>()
 
 /** Emitted once a document is actually gone, so the parent can refetch and stop polling it. */
 const emit = defineEmits<{ deleted: [id: number] }>()
@@ -57,6 +58,23 @@ const selectableSelection = computed({
     selection.value = rows.filter(isReady)
   },
 })
+
+const readyDocs = computed(() => props.documents.filter(isReady))
+
+const allReadySelected = computed({
+  get: () =>
+    readyDocs.value.length > 0 &&
+    readyDocs.value.every((document) => selection.value.some((row) => row.id === document.id)),
+  set: (checked: boolean) => {
+    selection.value = checked ? [...readyDocs.value] : []
+  },
+})
+
+const someReadySelected = computed(
+  () =>
+    !allReadySelected.value &&
+    readyDocs.value.some((document) => selection.value.some((row) => row.id === document.id)),
+)
 </script>
 
 <template>
@@ -67,8 +85,22 @@ const selectableSelection = computed({
       <ProgressSpinner style="width: 2.5rem; height: 2.5rem" aria-label="Loading documents" />
     </div>
 
+    <label
+      v-if="!loading && documents.length"
+      class="select-all-row"
+      :class="{ 'select-all-disabled': readyDocs.length === 0 }"
+    >
+      <Checkbox
+        v-model="allReadySelected"
+        binary
+        :indeterminate="someReadySelected"
+        :disabled="readyDocs.length === 0"
+      />
+      Select all
+    </label>
+
     <DataTable
-      v-else
+      v-if="!loading"
       v-model:selection="selectableSelection"
       :value="documents"
       data-key="id"
@@ -128,6 +160,21 @@ const selectableSelection = computed({
   padding: 0 12px;
   color: var(--p-text-muted-color);
   font-size: 13px;
+}
+
+.select-all-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 8px;
+  font-size: 12.5px;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+}
+
+.select-all-disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .document-title {

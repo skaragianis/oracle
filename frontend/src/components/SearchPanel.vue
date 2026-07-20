@@ -51,7 +51,10 @@ const expandedIds = ref<Set<number>>(new Set())
 
 const canSearch = computed(
   () =>
-    query.value.trim().length > 0 && selectedSources.value.length > 0 && !searching.value,
+    query.value.trim().length > 0 &&
+    selectedSources.value.length > 0 &&
+    props.selected.length > 0 &&
+    !searching.value,
 )
 
 const readyCount = computed(
@@ -60,26 +63,10 @@ const readyCount = computed(
 const processingCount = computed(
   () => props.documents.filter((document) => document.status === 'pending').length,
 )
-// An empty selection searches every ready document, so the note should say so
-// rather than claiming zero were searched.
-const selectedReadyCount = computed(() =>
-  props.selected.length > 0 ? props.selected.length : readyCount.value,
-)
+const selectedReadyCount = computed(() => props.selected.length)
 const excludedNote = computed(() =>
   processingCount.value > 0 ? `${processingCount.value} still processing` : 'all documents included',
 )
-
-/**
- * The API searches every document, so scoping to the checked rows happens here.
- * An empty selection means "search everything" rather than "search nothing",
- * which would make the page look broken before you've picked anything.
- */
-const scopedResults = computed(() => {
-  if (results.value === null) return null
-  if (props.selected.length === 0) return results.value
-  const selectedIds = new Set(props.selected.map((document) => document.id))
-  return results.value.filter((result) => selectedIds.has(result.doc_id))
-})
 
 async function runSearch() {
   if (!canSearch.value) return
@@ -89,7 +76,11 @@ async function runSearch() {
   copied.value = false
   expandedIds.value = new Set()
   try {
-    results.value = await search(query.value, selectedSources.value)
+    results.value = await search(
+      query.value,
+      selectedSources.value,
+      props.selected.map((document) => document.id),
+    )
     submittedQuery.value = query.value.trim()
   } catch (exception) {
     results.value = null
@@ -116,9 +107,9 @@ function toggleExpand(chunkId: number) {
 }
 
 async function copyForLlm() {
-  if (!scopedResults.value?.length) return
+  if (!results.value?.length) return
   try {
-    await copyText(buildLlmPrompt(submittedQuery.value, scopedResults.value))
+    await copyText(buildLlmPrompt(submittedQuery.value, results.value))
   } catch {
     error.value = 'Could not copy to the clipboard.'
     return
@@ -159,7 +150,7 @@ async function copyForLlm() {
         </label>
       </div>
 
-      <p v-if="scopedResults !== null" class="search-scope">
+      <p v-if="results !== null" class="search-scope">
         Searching
         <strong>{{ selectedReadyCount }} of {{ readyCount }}</strong>
         ready documents · {{ excludedNote }}
@@ -167,7 +158,7 @@ async function copyForLlm() {
     </div>
 
     <div class="panel-body">
-      <div v-if="!searching && scopedResults?.length" class="copy-bar">
+      <div v-if="!searching && results?.length" class="copy-bar">
         <Button
           :label="copied ? 'Copied' : 'Copy question & results for an LLM'"
           :icon="copied ? 'pi pi-check' : 'pi pi-copy'"
@@ -186,7 +177,7 @@ async function copyForLlm() {
         <div class="skeleton skeleton-sm" />
       </div>
 
-      <div v-else-if="scopedResults === null" class="empty-state">
+      <div v-else-if="results === null" class="empty-state">
         <div class="empty-title">What do you want to know?</div>
         <p class="empty-hint">
           Oracle searches across your library and surfaces the passages that answer your question.
@@ -205,16 +196,16 @@ async function copyForLlm() {
       </div>
 
       <template v-else>
-        <p v-if="scopedResults.length === 0" class="search-empty">No matches found.</p>
+        <p v-if="results.length === 0" class="search-empty">No matches found.</p>
 
         <template v-else>
           <div class="excerpts-heading">
-            <span>Supporting excerpts ({{ scopedResults.length }})</span>
+            <span>Supporting excerpts ({{ results.length }})</span>
             <div class="excerpts-rule" />
           </div>
 
           <ol class="results">
-            <li v-for="(result, index) in scopedResults" :key="result.chunk_id">
+            <li v-for="(result, index) in results" :key="result.chunk_id">
               <Card class="excerpt-card">
                 <template #content>
                   <div

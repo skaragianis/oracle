@@ -36,7 +36,7 @@ const RESULTS: SearchResult[] = [
   },
 ]
 
-function mountPanel(selected: OracleDocument[] = [], documents: OracleDocument[] = [READY]) {
+function mountPanel(selected: OracleDocument[] = [READY], documents: OracleDocument[] = [READY]) {
   return mount(SearchPanel, {
     props: { selected, documents },
     global: { plugins: [[PrimeVue, { theme: { preset: Aura } }]] },
@@ -76,7 +76,7 @@ describe('SearchPanel', () => {
 
     await runSearch(wrapper)
 
-    expect(searchMock).toHaveBeenCalledWith('brown', ['bm25', 'vector'])
+    expect(searchMock).toHaveBeenCalledWith('brown', ['bm25', 'vector'], [READY.id])
     const cards = wrapper.findAll('.p-card')
     expect(cards).toHaveLength(2)
     expect(cards[0].text()).toContain('first.pdf')
@@ -129,15 +129,37 @@ describe('SearchPanel', () => {
     expect(cards[1].findAll('.p-tag').map((tag) => tag.text())).toEqual(['Vector'])
   })
 
-  it('limits results to the selected documents', async () => {
+  it('renders every result returned, without filtering by the selected documents', async () => {
+    // second.pdf (doc_id 2) is not in the selection, but scoping is the
+    // backend's job now — the frontend renders whatever comes back.
     searchMock.mockResolvedValue(RESULTS)
     const wrapper = mountPanel([READY])
 
     await runSearch(wrapper)
 
     const cards = wrapper.findAll('.p-card')
-    expect(cards).toHaveLength(1)
-    expect(cards[0].text()).toContain('first.pdf')
+    expect(cards).toHaveLength(2)
+  })
+
+  it('sends the selected document ids to search', async () => {
+    const secondDocument: OracleDocument = { id: 2, filename: 'second.pdf', status: 'ready', error: null }
+    searchMock.mockResolvedValue([])
+    const wrapper = mountPanel([READY, secondDocument])
+
+    await runSearch(wrapper)
+
+    expect(searchMock).toHaveBeenCalledWith('brown', ['bm25', 'vector'], [READY.id, secondDocument.id])
+  })
+
+  it('disables Ask Oracle and does not search when no documents are selected', async () => {
+    const wrapper = mountPanel([])
+    await wrapper.find('input').setValue('brown')
+
+    expect(wrapper.find('.ask-button').attributes('disabled')).toBeDefined()
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(searchMock).not.toHaveBeenCalled()
   })
 
   it('does not search a blank query', async () => {
@@ -196,19 +218,6 @@ describe('SearchPanel', () => {
     await flushPromises()
 
     expect(writeTextMock.mock.calls[0][0]).toContain('Question: brown animals')
-  })
-
-  it('copies only the results scoped to the selected documents', async () => {
-    searchMock.mockResolvedValue(RESULTS)
-    const wrapper = mountPanel([READY])
-    await runSearch(wrapper)
-
-    await copyButton(wrapper)!.trigger('click')
-    await flushPromises()
-
-    const copied = writeTextMock.mock.calls[0][0] as string
-    expect(copied).toContain('first.pdf')
-    expect(copied).not.toContain('second.pdf')
   })
 
   it('reports a clipboard failure', async () => {
@@ -276,6 +285,6 @@ describe('source selection', () => {
 
     await runSearch(wrapper)
 
-    expect(searchMock).toHaveBeenCalledWith('brown', ['vector'])
+    expect(searchMock).toHaveBeenCalledWith('brown', ['vector'], [READY.id])
   })
 })

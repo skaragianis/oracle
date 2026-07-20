@@ -23,12 +23,17 @@ const watched = new Set<number>()
 // Ids the user deleted while their poll was still in flight: the poll's next
 // request 404s, which is expected, not a failure worth showing.
 const deleted = new Set<number>()
+// Ready doc ids already defaulted into the selection once. Tracking this
+// separately from `selected` lets a manual deselection stick across refreshes,
+// instead of every ready document snapping back into the selection each time.
+const offered = new Set<number>()
 
 async function refresh() {
   loading.value = true
   error.value = null
   try {
     documents.value = await listDocuments()
+    offerReadyDocuments()
     pruneSelection()
     watchPending()
   } catch (exception) {
@@ -36,6 +41,20 @@ async function refresh() {
       exception instanceof ApiError ? exception.message : 'Could not load documents.'
   } finally {
     loading.value = false
+  }
+}
+
+function offerReadyDocuments() {
+  const additions: OracleDocument[] = []
+  for (const document of documents.value) {
+    if (document.status !== 'ready' || offered.has(document.id)) continue
+    offered.add(document.id)
+    if (!selected.value.some((row) => row.id === document.id)) {
+      additions.push(document)
+    }
+  }
+  if (additions.length > 0) {
+    selected.value = [...selected.value, ...additions]
   }
 }
 
@@ -72,6 +91,7 @@ function watchPending() {
 
 function handleDeleted(id: number) {
   deleted.add(id)
+  offered.delete(id)
   refresh()
 }
 
@@ -79,6 +99,7 @@ function settle(settled: OracleDocument) {
   const index = documents.value.findIndex((document) => document.id === settled.id)
   if (index === -1 || documents.value[index].status !== 'pending') return
   documents.value[index] = settled
+  offerReadyDocuments()
 }
 
 onMounted(refresh)
