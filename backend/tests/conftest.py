@@ -1,8 +1,10 @@
 import uuid
 import zlib
 from collections.abc import Iterable, Iterator
+from typing import cast
 
 import chromadb
+import chromadb.api.client
 import pytest
 
 from oracle.common.embeddings import VectorIndex
@@ -35,11 +37,11 @@ def make_vector_index() -> VectorIndex:
     # A unique collection name per index: EphemeralClient instances with equal
     # settings share one in-memory system, so a fixed name would leak state
     # between tests.
-    client = chromadb.EphemeralClient()
+    client = cast(chromadb.api.client.Client, chromadb.EphemeralClient())
     collection = client.create_collection(
         f"chunks-{uuid.uuid4().hex}", configuration={"hnsw": {"space": "cosine"}}
     )
-    return VectorIndex(collection, FakeEmbedder())
+    return VectorIndex(collection, FakeEmbedder(), client=client)
 
 
 @pytest.fixture

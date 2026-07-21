@@ -639,6 +639,110 @@ def test_process_document_records_an_embedding_failure(
     assert result.error is not None and "embedding blew up" in result.error
 
 
+def test_process_document_interrupted_leaves_document_pending(
+    tmp_path: Path, conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    source = tmp_path / "source.docx"
+    _write_docx(source, ["Hello world.", "Second paragraph here."])
+    staged = stage_file(
+        conn, source, uploads_dir=tmp_path / "uploads", vector_index=vector_index
+    )
+
+    result = process_document(
+        conn,
+        staged.doc_id,
+        staged.destination_path,
+        vector_index=vector_index,
+        should_stop=lambda: True,
+    )
+
+    # A terminal status would strand the doc; it must stay pending for the
+    # startup reprocess to resume.
+    assert result.status == "pending"
+    assert result.error is None
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (staged.doc_id,)
+    ).fetchone()[0]
+    assert status == "pending"
+    chunk_count = conn.execute(
+        "SELECT count(*) FROM chunks WHERE doc_id = ?", (staged.doc_id,)
+    ).fetchone()[0]
+    assert chunk_count == 0
+
+
+def test_process_document_interrupt_halts_between_embed_batches(
+    tmp_path: Path,
+    conn: sqlite3.Connection,
+    vector_index: VectorIndex,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Long enough to span several embedding batches, so it is the between-batch
+    # stop check — not the chunking loop — that halts embedding partway.
+    source = tmp_path / "big.docx"
+    _write_docx(source, [f"section{i} " + "filler " * 150 for i in range(200)])
+    staged = stage_file(
+        conn, source, uploads_dir=tmp_path / "uploads", vector_index=vector_index
+    )
+
+    batches = 0
+    real_index_chunks = vector_index.index_chunks
+
+    def counting_index_chunks(doc_id: int, chunks: Sequence[ChunkToIndex]) -> None:
+        nonlocal batches
+        batches += 1
+        real_index_chunks(doc_id, chunks)
+
+    monkeypatch.setattr(vector_index, "index_chunks", counting_index_chunks)
+
+    result = process_document(
+        conn,
+        staged.doc_id,
+        staged.destination_path,
+        vector_index=vector_index,
+        should_stop=lambda: batches >= 1,
+    )
+
+    assert result.status == "pending"
+    assert batches == 1  # stopped right after the first batch, not the whole doc
+    total_chunks = conn.execute(
+        "SELECT count(*) FROM chunks WHERE doc_id = ?", (staged.doc_id,)
+    ).fetchone()[0]
+    assert total_chunks > 16  # chunking finished; embedding is what got cut short
+
+
+def test_process_document_resumes_cleanly_after_an_interrupt(
+    tmp_path: Path, conn: sqlite3.Connection, vector_index: VectorIndex
+) -> None:
+    source = tmp_path / "source.docx"
+    _write_docx(source, ["Hello world."])
+    staged = stage_file(
+        conn, source, uploads_dir=tmp_path / "uploads", vector_index=vector_index
+    )
+
+    interrupted = process_document(
+        conn,
+        staged.doc_id,
+        staged.destination_path,
+        vector_index=vector_index,
+        should_stop=lambda: True,
+    )
+    assert interrupted.status == "pending"
+
+    resumed = process_document(
+        conn, staged.doc_id, staged.destination_path, vector_index=vector_index
+    )
+
+    assert resumed.status == "ready"
+    chunk_ids = {
+        row[0]
+        for row in conn.execute(
+            "SELECT id FROM chunks WHERE doc_id = ?", (staged.doc_id,)
+        )
+    }
+    matches = vector_index.search("hello world", limit=10)
+    assert {match.chunk_id for match in matches} == chunk_ids
+
+
 def test_process_document_clears_stale_chunks_before_rechunking(
     tmp_path: Path, conn: sqlite3.Connection
 ) -> None:

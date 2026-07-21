@@ -2,9 +2,10 @@ import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import chromadb
+import chromadb.api.client
 
 from oracle.common.db import PACKAGE_ROOT
 
@@ -42,9 +43,19 @@ class VectorMatch:
 
 
 class VectorIndex:
-    def __init__(self, collection: chromadb.Collection, embedder: Embedder) -> None:
+    def __init__(
+        self,
+        collection: chromadb.Collection,
+        embedder: Embedder,
+        *,
+        client: chromadb.api.client.Client,
+    ) -> None:
         self._collection = collection
         self._embedder = embedder
+        self._client = client
+
+    def close(self) -> None:
+        self._client.close()
 
     def index_chunks(self, doc_id: int, chunks: Sequence[ChunkToIndex]) -> None:
         if not chunks:
@@ -91,11 +102,15 @@ def open_vector_index(
     from fastembed import TextEmbedding
 
     embedder = TextEmbedding(EMBEDDING_MODEL_NAME, cache_dir=str(model_cache_dir))
-    client = chromadb.PersistentClient(path=str(vector_db_path))
+    # PersistentClient is annotated as returning the abstract ClientAPI, but it
+    # always constructs a concrete Client, which is what actually has .close().
+    client = cast(
+        chromadb.api.client.Client, chromadb.PersistentClient(path=str(vector_db_path))
+    )
     collection = client.get_or_create_collection(
         COLLECTION_NAME, configuration={"hnsw": {"space": "cosine"}}
     )
-    return VectorIndex(collection, embedder)
+    return VectorIndex(collection, embedder, client=client)
 
 
 _default_vector_index: VectorIndex | None = None

@@ -4,6 +4,7 @@ import threading
 import time
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+from unittest import mock
 
 import docx
 import fitz
@@ -11,11 +12,14 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from oracle.common import ingest
+from oracle.common import db, documents, ingest
 from oracle.common.db import apply_migrations
 from oracle.common.embeddings import VectorIndex
 from oracle.server.app import (
+    _ingest_slot,
     _process_document_in_background,
+    _shutdown_gracefully,
+    _shutting_down,
     allowed_origins,
     app,
     get_connection,
@@ -60,6 +64,12 @@ def client(
     # the real database at db.DEFAULT_DB_PATH rather than this test's.
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_shutting_down() -> Iterator[None]:
+    yield
+    _shutting_down.clear()
 
 
 def _pdf_bytes(paragraphs: Iterable[str]) -> bytes:
@@ -246,7 +256,12 @@ def test_background_processing_serializes_concurrent_uploads(
     lock = threading.Lock()
 
     def fake_process_document(
-        conn: object, doc_id: int, stored_path: Path, *, vector_index: object
+        conn: object,
+        doc_id: int,
+        stored_path: Path,
+        *,
+        vector_index: object,
+        should_stop: object = None,
     ) -> None:
         nonlocal active, max_active
         with lock:
@@ -499,3 +514,107 @@ def test_delete_document_404s_for_an_unknown_id(client: TestClient) -> None:
     response = client.delete("/documents/999")
 
     assert response.status_code == 404
+
+
+def test_background_processing_bails_when_shutting_down(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    tmp_path: Path,
+    vector_index: VectorIndex,
+) -> None:
+    doc_id = documents.create_document(
+        conn,
+        filename="source.pdf",
+        stored_filename="source.pdf",
+        mime_type="application/pdf",
+        size_bytes=1,
+    )
+    _shutting_down.set()
+
+    # vector_index is never touched: the shutdown check bails before the
+    # background task reaches process_document.
+    _process_document_in_background(
+        lambda: sqlite3.connect(db_path),
+        vector_index,
+        doc_id,
+        tmp_path / "source.pdf",
+    )
+
+    document = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone()
+    assert document == ("pending",)
+    chunk_count = conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (doc_id,)
+    ).fetchone()[0]
+    assert chunk_count == 0
+
+
+def test_shutdown_gracefully_checkpoints_wal_and_closes_vector_index(
+    db_path: Path, vector_index: VectorIndex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Ephemeral Chroma clients share one underlying System keyed by settings and
+    # only tear it down once every client sharing it has closed, so closing just
+    # this test's client wouldn't reliably make a later real operation raise.
+    # Spy on the client's own close() instead of relying on that side effect.
+    close_spy = mock.Mock(wraps=vector_index._client.close)
+    monkeypatch.setattr(vector_index._client, "close", close_spy)
+
+    # Kept open past the checkpoint: closing the last WAL connection triggers
+    # its own automatic checkpoint, which would make this test pass vacuously.
+    setup_conn = db.get_connection(db_path)
+    apply_migrations(setup_conn)
+    documents.create_document(
+        setup_conn,
+        filename="source.pdf",
+        stored_filename="source.pdf",
+        mime_type="application/pdf",
+        size_bytes=1,
+    )
+
+    wal_path = db_path.with_name(db_path.name + "-wal")
+    assert wal_path.exists() and wal_path.stat().st_size > 0
+
+    try:
+        _shutdown_gracefully(
+            vector_index, connection_factory=lambda: db.get_connection(db_path)
+        )
+
+        assert not wal_path.exists() or wal_path.stat().st_size == 0
+        count = setup_conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        assert count == 1
+    finally:
+        setup_conn.close()
+
+    close_spy.assert_called_once()
+
+
+def test_shutdown_gracefully_falls_through_when_ingest_holds_the_slot(
+    db_path: Path, vector_index: VectorIndex
+) -> None:
+    held = threading.Event()
+    release = threading.Event()
+
+    def hold_ingest_slot() -> None:
+        _ingest_slot.acquire()
+        held.set()
+        release.wait()
+        _ingest_slot.release()
+
+    holder = threading.Thread(target=hold_ingest_slot)
+    holder.start()
+    assert held.wait(timeout=1)
+
+    try:
+        start = time.monotonic()
+        _shutdown_gracefully(
+            vector_index,
+            timeout=0.2,
+            connection_factory=lambda: db.get_connection(db_path),
+        )
+        elapsed = time.monotonic() - start
+    finally:
+        release.set()
+        holder.join(timeout=1)
+
+    assert elapsed < 1.0

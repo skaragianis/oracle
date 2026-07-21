@@ -5,7 +5,7 @@ import re
 import shutil
 import sqlite3
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -34,6 +34,18 @@ CHUNK_OVERLAP_TOKENS = 100
 
 class UnsupportedFileTypeError(ValueError):
     pass
+
+
+ShouldStop = Callable[[], bool]
+
+
+class IngestInterrupted(Exception):
+    pass
+
+
+def _check_stop(should_stop: ShouldStop | None) -> None:
+    if should_stop is not None and should_stop():
+        raise IngestInterrupted
 
 
 @dataclass
@@ -117,6 +129,7 @@ def process_document(
     doc_id: int,
     stored_path: str | Path,
     vector_index: embeddings.VectorIndex | None = None,
+    should_stop: ShouldStop | None = None,
 ) -> ProcessResult:
     stored_path = Path(stored_path)
 
@@ -125,9 +138,12 @@ def process_document(
         chunks.delete_chunks_for_document(conn, doc_id)
         if vector_index is not None:
             vector_index.delete_document(doc_id)
-        chunk_document(conn, doc_id, stored_path)
+        chunk_document(conn, doc_id, stored_path, should_stop=should_stop)
         if vector_index is not None:
-            _embed_document_chunks(conn, doc_id, vector_index)
+            _embed_document_chunks(conn, doc_id, vector_index, should_stop=should_stop)
+    except IngestInterrupted:
+        logger.info("Ingest of document %s interrupted; left pending", doc_id)
+        return ProcessResult(status="pending", error=None)
     except Exception as exc:
         logger.exception("Failed to process document %s at %s", doc_id, stored_path)
         error = f"{type(exc).__name__}: {exc}"
@@ -139,15 +155,21 @@ def process_document(
 
 
 def _embed_document_chunks(
-    conn: sqlite3.Connection, doc_id: int, vector_index: embeddings.VectorIndex
+    conn: sqlite3.Connection,
+    doc_id: int,
+    vector_index: embeddings.VectorIndex,
+    should_stop: ShouldStop | None = None,
 ) -> None:
     rows = conn.execute(
         "SELECT id, text FROM chunks WHERE doc_id = ? ORDER BY seq", (doc_id,)
     ).fetchall()
-    vector_index.index_chunks(
-        doc_id,
-        [embeddings.ChunkToIndex(chunk_id=row[0], text=row[1]) for row in rows],
-    )
+    for start in range(0, len(rows), embeddings.EMBED_BATCH_SIZE):
+        _check_stop(should_stop)
+        batch = rows[start : start + embeddings.EMBED_BATCH_SIZE]
+        vector_index.index_chunks(
+            doc_id,
+            [embeddings.ChunkToIndex(chunk_id=row[0], text=row[1]) for row in batch],
+        )
 
 
 def reprocess_pending_documents(
@@ -214,6 +236,7 @@ def chunk_document(
     encoding_name: str = CHUNK_ENCODING_NAME,
     target_tokens: int = CHUNK_TARGET_TOKENS,
     overlap_tokens: int = CHUNK_OVERLAP_TOKENS,
+    should_stop: ShouldStop | None = None,
 ) -> int:
     path = Path(path)
     suffix = path.suffix.lower()
@@ -232,6 +255,7 @@ def chunk_document(
         encoding_name=encoding_name,
         target_tokens=target_tokens,
         overlap_tokens=overlap_tokens,
+        should_stop=should_stop,
     )
 
 
@@ -293,6 +317,7 @@ def _chunk_lines(
     encoding_name: str,
     target_tokens: int,
     overlap_tokens: int,
+    should_stop: ShouldStop | None = None,
 ) -> int:
     encoding = tiktoken.get_encoding(encoding_name)
     seq = 0
@@ -335,6 +360,7 @@ def _chunk_lines(
         buffer_has_new_content = False
 
     for line_text, page_number, paragraph_index in lines:
+        _check_stop(should_stop)
         token_count = len(encoding.encode(line_text))
 
         buffer.append(

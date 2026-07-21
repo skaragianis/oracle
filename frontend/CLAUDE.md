@@ -6,18 +6,23 @@ The Vue half of the `oracle` monorepo (repo-wide picture: root `CLAUDE.md`). A V
 
 ## Commands
 
-Run from `frontend/` with `pnpm` (never `npm`/`yarn`). The backend must be running for anything to work (`cd ../backend && uv run oracle-server`).
+Prefer the repo-root `make` targets — they `cd frontend` and run `pnpm` for you. The backend must be running for the app to work (`make server-run`); `make frontend-e2e` starts its own.
 
 ```bash
-pnpm install
-pnpm dev                     # Vite on 127.0.0.1:5173 (add --host for LAN)
-pnpm test                    # full Vitest suite
-pnpm test tests/api.test.ts  # single file (no `--`)
-pnpm test:e2e                # Playwright (starts its own backend + Vite)
-pnpm typecheck               # vue-tsc — the real typecheck
+make setup            # install deps (also backend + Playwright browsers)
+make frontend-run     # Vite on 127.0.0.1:5173 (already passes --host for LAN)
+make frontend-test    # full Vitest suite
+make frontend-e2e     # Playwright (starts its own backend + Vite)
+make frontend-lint    # vue-tsc — the real typecheck
 ```
 
-**`vite build` and `vitest` do NOT typecheck** — they strip types. `pnpm typecheck` (vue-tsc) is the authority.
+Drop to raw `pnpm` from `frontend/` only for what the targets don't cover (never `npm`/`yarn`):
+
+```bash
+pnpm test tests/api.test.ts  # single file (no `--`)
+```
+
+**`vite build` and `vitest` do NOT typecheck** — they strip types. `make frontend-lint` (vue-tsc) is the authority.
 
 ## Architecture
 

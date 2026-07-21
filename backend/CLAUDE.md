@@ -10,16 +10,23 @@ The Python half of the `oracle` monorepo (repo-wide picture and cross-cutting `m
 
 ## Commands
 
-Run from `backend/` with `uv` (never call `pip`/`venv` directly — `uv` owns the venv and lockfile).
+Prefer the repo-root `make` targets — they `cd backend` and run `uv` for you, and are the verified entry points:
 
 ```bash
-uv sync                                                # install deps per uv.lock
-uv run pytest                                          # full suite
+make setup                       # install deps per uv.lock (also frontend + Playwright)
+make backend-test                # full suite (CLI, server, common)
+make cli-test                    # CLI + common only
+make server-test                 # server + common only
+make backend-lint                # ruff check + ty check
+make server-run                  # dev server on 127.0.0.1:8000
+make cli-run ARGS="--help"       # run the CLI
+```
+
+Drop to raw `uv` from `backend/` only for what the targets don't cover (never call `pip`/`venv` directly — `uv` owns the venv and lockfile):
+
+```bash
 uv run pytest tests/test_server_app.py::test_health    # single test
-uv run ruff check                                      # lint
-uv run ty check                                        # typecheck
-uv run oracle-cli                                      # run the CLI
-uv run uvicorn oracle.server.app:app --reload          # dev server with reload
+uv run uvicorn oracle.server.app:app --reload          # dev server with auto-reload
 ```
 
 Entry points (`oracle-cli`, `oracle-server`) are `[project.scripts]` consoles, each a thin `main()`. Add server routes to `oracle/server/app.py` (the ASGI object uvicorn imports). Keep CLI and server decoupled — share through `common/`, don't import one app's internals from the other.
@@ -28,6 +35,7 @@ Entry points (`oracle-cli`, `oracle-server`) are `[project.scripts]` consoles, e
 
 - **Two-phase ingest.** `ingest.stage_file()` stores the upload as `pending`; `ingest.process_document()` chunks + embeds it and moves it to a terminal status (`ready`, or `failed` with the reason in `documents.error`). The server splits these (request + `BackgroundTasks`, returns 202); the CLI does both inline via `ingest_file()`. `process_document()` never raises (a background task has nobody to return to — it records failures on the doc) and clears a doc's chunks/vectors before (re)chunking, so it's safe to redo. Keep every path terminal — a doc stuck `pending` is polled forever. The server lifespan runs `reprocess_pending_documents()` at startup to resume anything left `pending`.
 - Background tasks can't reuse the request connection (closed by then) — they open their own via `get_connection_factory`. Override that dependency in tests, or the task writes the real db.
+- **Graceful shutdown is signal-driven, not lifespan-driven.** uvicorn drains in-flight background tasks *before* it fires the ASGI lifespan shutdown, so setting the stop flag in the lifespan is too late to interrupt a running ingest. `server.main._Server.handle_exit` sets `app._shutting_down` the instant SIGINT/SIGTERM lands; `ingest.process_document` polls `should_stop` between chunk lines and embed batches and bails by leaving the doc **pending** (never terminal — startup reprocess resumes it). Only then does the lifespan's `_shutdown_gracefully` run: WAL checkpoint (`wal_checkpoint(TRUNCATE)`) + `vector_index.close()`, bounded by `SHUTDOWN_INGEST_TIMEOUT_SECONDS` (also uvicorn's `timeout_graceful_shutdown` ceiling). Running the ASGI app directly (`uvicorn oracle.server.app:app --reload`) bypasses `_Server`, so in-flight ingests won't interrupt on Ctrl-C — that path is dev-only; `oracle-server` is the real entry.
 - `ORACLE_DB_PATH`, `ORACLE_UPLOADS_DIR`, `ORACLE_VECTOR_DB_PATH`, `ORACLE_MODEL_CACHE_DIR` (all default under `data/`) are read **at import time** — set them before the process starts. Don't test the override with `importlib.reload`: it hands other modules a stale `UnsupportedFileTypeError`, silently breaking `app.py`'s `except`. Use a subprocess.
 - **Migrations** are `.sql` files in `migrations/`, applied in filename order and tracked **by filename** — editing an already-applied file does nothing. After editing one, `oracle-cli --reset` (or delete `data/oracle.db`) to re-apply.
 - **`chunks` has an FTS5 mirror `chunks_fts`** (external-content, synced by triggers). Always write through `chunks` (`create_chunk`, `delete_chunks_for_document`) — never insert into `chunks_fts` directly.

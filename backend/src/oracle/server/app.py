@@ -16,24 +16,61 @@ from oracle.common import db, documents, embeddings, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
 from oracle.common.search import SearchSource
 
+SHUTDOWN_INGEST_TIMEOUT_SECONDS = 10
+
 
 def allowed_origins() -> list[str]:
     configured = os.environ.get("ORACLE_ALLOWED_ORIGINS", "")
     return [origin.strip() for origin in configured.split(",") if origin.strip()]
 
 
-@asynccontextmanager
-async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+_shutting_down = threading.Event()
+
+
+def request_shutdown() -> None:
+    _shutting_down.set()
+
+
+def _startup(
+    *,
+    connection_factory: Callable[[], sqlite3.Connection] = db.get_connection,
+) -> embeddings.VectorIndex:
+    _shutting_down.clear()
     db.run_migrations()
-    # Downloads the embedding model on the very first startup; after that it
-    # loads from the cache dir.
     vector_index = embeddings.get_default_vector_index()
-    conn = db.get_connection()
+    conn = connection_factory()
     try:
         ingest.reprocess_pending_documents(conn, vector_index=vector_index)
     finally:
         conn.close()
+    return vector_index
+
+
+def _shutdown_gracefully(
+    vector_index: embeddings.VectorIndex,
+    *,
+    timeout: float = SHUTDOWN_INGEST_TIMEOUT_SECONDS,
+    connection_factory: Callable[[], sqlite3.Connection] = db.get_connection,
+) -> None:
+    _shutting_down.set()
+    acquired = _ingest_slot.acquire(timeout=timeout)
+    try:
+        conn = connection_factory()
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
+        vector_index.close()
+    finally:
+        if acquired:
+            _ingest_slot.release()
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    vector_index = _startup()
     yield
+    _shutdown_gracefully(vector_index)
 
 
 app = FastAPI(lifespan=_lifespan)
@@ -124,11 +161,21 @@ def _process_document_in_background(
     doc_id: int,
     stored_path: Path,
 ) -> None:
+    if _shutting_down.is_set():
+        return
     with _ingest_slot:
+        # A second queued task can have been blocked on the semaphore above
+        # already passing this check, so it must be checked again once held.
+        if _shutting_down.is_set():
+            return
         conn = connection_factory()
         try:
             ingest.process_document(
-                conn, doc_id, stored_path, vector_index=vector_index
+                conn,
+                doc_id,
+                stored_path,
+                vector_index=vector_index,
+                should_stop=_shutting_down.is_set,
             )
         finally:
             conn.close()
