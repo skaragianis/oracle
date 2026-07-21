@@ -25,6 +25,7 @@ def allowed_origins() -> list[str]:
 
 
 _shutting_down = threading.Event()
+_reprocess_thread: threading.Thread | None = None
 
 
 def request_shutdown() -> None:
@@ -34,15 +35,19 @@ def request_shutdown() -> None:
 def _startup(
     *,
     connection_factory: Callable[[], sqlite3.Connection] = db.get_connection,
+    uploads_dir: Path = ingest.DEFAULT_UPLOADS_DIR,
 ) -> embeddings.VectorIndex:
+    global _reprocess_thread
     _shutting_down.clear()
     db.run_migrations()
     vector_index = embeddings.get_default_vector_index()
-    conn = connection_factory()
-    try:
-        ingest.reprocess_pending_documents(conn, vector_index=vector_index)
-    finally:
-        conn.close()
+    _reprocess_thread = threading.Thread(
+        target=_reprocess_pending_in_background,
+        args=(connection_factory, uploads_dir, vector_index),
+        name="reprocess-pending",
+        daemon=True,
+    )
+    _reprocess_thread.start()
     return vector_index
 
 
@@ -179,6 +184,35 @@ def _process_document_in_background(
             )
         finally:
             conn.close()
+
+
+def _reprocess_pending_in_background(
+    connection_factory: Callable[[], sqlite3.Connection],
+    uploads_dir: Path,
+    vector_index: embeddings.VectorIndex,
+) -> None:
+    conn = connection_factory()
+    try:
+        pending = documents.list_pending_documents(conn)
+    finally:
+        conn.close()
+
+    for doc_id, stored_filename in pending:
+        if _shutting_down.is_set():
+            return
+        stored_path = uploads_dir / stored_filename
+        if not stored_path.is_file():
+            conn = connection_factory()
+            try:
+                documents.mark_document_failed(
+                    conn, doc_id, f"Uploaded file missing: {stored_path}"
+                )
+            finally:
+                conn.close()
+            continue
+        _process_document_in_background(
+            connection_factory, vector_index, doc_id, stored_path
+        )
 
 
 @app.post("/documents", status_code=202)

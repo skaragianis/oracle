@@ -15,11 +15,14 @@ from fastapi.testclient import TestClient
 from oracle.common import db, documents, ingest
 from oracle.common.db import apply_migrations
 from oracle.common.embeddings import VectorIndex
+from oracle.server import app as app_module
 from oracle.server.app import (
     _ingest_slot,
     _process_document_in_background,
+    _reprocess_pending_in_background,
     _shutdown_gracefully,
     _shutting_down,
+    _startup,
     allowed_origins,
     app,
     get_connection,
@@ -100,6 +103,10 @@ def _docx_bytes(paragraphs: Iterable[str]) -> bytes:
     buffer = io.BytesIO()
     document.save(buffer)
     return buffer.getvalue()
+
+
+def _write_pdf_file(path: Path, paragraphs: Iterable[str] = ("Hello world.",)) -> None:
+    path.write_bytes(_pdf_bytes(paragraphs))
 
 
 def test_allowed_origins_is_empty_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -548,6 +555,116 @@ def test_background_processing_bails_when_shutting_down(
         "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (doc_id,)
     ).fetchone()[0]
     assert chunk_count == 0
+
+
+def test_reprocess_pending_in_background_drains_the_backlog(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    tmp_path: Path,
+    vector_index: VectorIndex,
+) -> None:
+    uploads_dir = tmp_path / "uploads"
+    first_source = tmp_path / "first.pdf"
+    second_source = tmp_path / "second.pdf"
+    _write_pdf_file(first_source, ["First document."])
+    _write_pdf_file(second_source, ["Second document."])
+    first = ingest.stage_file(
+        conn, first_source, uploads_dir=uploads_dir, vector_index=vector_index
+    )
+    second = ingest.stage_file(
+        conn, second_source, uploads_dir=uploads_dir, vector_index=vector_index
+    )
+
+    _reprocess_pending_in_background(
+        lambda: sqlite3.connect(db_path), uploads_dir, vector_index
+    )
+
+    statuses = conn.execute("SELECT id, status FROM documents ORDER BY id").fetchall()
+    assert statuses == [(first.doc_id, "ready"), (second.doc_id, "ready")]
+
+
+def test_reprocess_pending_in_background_bails_when_shutting_down(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    tmp_path: Path,
+    vector_index: VectorIndex,
+) -> None:
+    uploads_dir = tmp_path / "uploads"
+    source = tmp_path / "source.pdf"
+    _write_pdf_file(source, ["Hello world."])
+    staged = ingest.stage_file(
+        conn, source, uploads_dir=uploads_dir, vector_index=vector_index
+    )
+    _shutting_down.set()
+
+    _reprocess_pending_in_background(
+        lambda: sqlite3.connect(db_path), uploads_dir, vector_index
+    )
+
+    status = conn.execute(
+        "SELECT status FROM documents WHERE id = ?", (staged.doc_id,)
+    ).fetchone()[0]
+    assert status == "pending"
+
+
+def test_reprocess_pending_in_background_fails_a_document_with_missing_upload(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    tmp_path: Path,
+    vector_index: VectorIndex,
+) -> None:
+    uploads_dir = tmp_path / "uploads"
+    doc_id = documents.create_document(
+        conn,
+        filename="source.pdf",
+        stored_filename="missing.pdf",
+        mime_type="application/pdf",
+        size_bytes=1,
+    )
+
+    _reprocess_pending_in_background(
+        lambda: sqlite3.connect(db_path), uploads_dir, vector_index
+    )
+
+    status, error = conn.execute(
+        "SELECT status, error FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone()
+    assert status == "failed"
+    assert error is not None
+    assert "Uploaded file missing" in error
+
+
+def test_startup_returns_before_the_backlog_finishes(
+    db_path: Path,
+    vector_index: VectorIndex,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release = threading.Event()
+
+    def fake_reprocess(
+        connection_factory: object, uploads_dir: object, vector_index: object
+    ) -> None:
+        release.wait(timeout=5)
+
+    monkeypatch.setattr(app_module, "_reprocess_pending_in_background", fake_reprocess)
+    monkeypatch.setattr(
+        app_module.embeddings, "get_default_vector_index", lambda: vector_index
+    )
+    monkeypatch.setattr(app_module.db, "run_migrations", lambda: None)
+
+    try:
+        start = time.monotonic()
+        returned_index = _startup(connection_factory=lambda: sqlite3.connect(db_path))
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 1.0
+        assert returned_index is vector_index
+        assert app_module._reprocess_thread is not None
+        assert app_module._reprocess_thread.is_alive()
+    finally:
+        release.set()
+        if app_module._reprocess_thread is not None:
+            app_module._reprocess_thread.join(timeout=5)
 
 
 def test_shutdown_gracefully_checkpoints_wal_and_closes_vector_index(
