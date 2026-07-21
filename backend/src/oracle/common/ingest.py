@@ -172,25 +172,6 @@ def _embed_document_chunks(
         )
 
 
-def reprocess_pending_documents(
-    conn: sqlite3.Connection,
-    uploads_dir: Path = DEFAULT_UPLOADS_DIR,
-    vector_index: embeddings.VectorIndex | None = None,
-) -> list[ProcessResult]:
-    results = []
-    for doc_id, stored_filename in documents.list_pending_documents(conn):
-        stored_path = uploads_dir / stored_filename
-        if not stored_path.is_file():
-            error = f"Uploaded file missing: {stored_path}"
-            documents.mark_document_failed(conn, doc_id, error)
-            results.append(ProcessResult(status="failed", error=error))
-            continue
-        results.append(
-            process_document(conn, doc_id, stored_path, vector_index=vector_index)
-        )
-    return results
-
-
 def ingest_file(
     conn: sqlite3.Connection,
     source_path: str | Path,
