@@ -171,12 +171,6 @@ def _search(
     sources: list[str],
     document_ids: list[int] | None,
 ) -> None:
-    if document_ids is None:
-        document_ids = [
-            document.id
-            for document in documents.list_documents(conn)
-            if document.status == "ready"
-        ]
     results = search.search_hybrid(
         conn,
         embeddings.open_vector_index(),
