@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from oracle.common import db, documents, embeddings, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
@@ -115,6 +115,8 @@ VectorIndexDep = Annotated[embeddings.VectorIndex, Depends(get_vector_index)]
 
 
 class DocumentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     filename: str
     status: str
@@ -135,6 +137,8 @@ class SearchRequest(BaseModel):
 
 
 class SearchResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     doc_id: int
     filename: str
     chunk_id: int
@@ -248,12 +252,7 @@ def _add_document(
 @app.get("/documents")
 def _list_documents(conn: Connection) -> list[DocumentResponse]:
     return [
-        DocumentResponse(
-            id=document.id,
-            filename=document.filename,
-            status=document.status,
-            error=document.error,
-        )
+        DocumentResponse.model_validate(document)
         for document in documents.list_documents(conn)
     ]
 
@@ -265,12 +264,7 @@ def _get_document(conn: Connection, document_id: int) -> DocumentResponse:
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    return DocumentResponse(
-        id=document.id,
-        filename=document.filename,
-        status=document.status,
-        error=document.error,
-    )
+    return DocumentResponse.model_validate(document)
 
 
 @app.delete("/documents/{document_id}", status_code=204)
@@ -299,16 +293,5 @@ def _search_documents(
         document_ids=request.document_ids,
     )
     return SearchResponse(
-        results=[
-            SearchResultResponse(
-                doc_id=result.doc_id,
-                filename=result.filename,
-                chunk_id=result.chunk_id,
-                seq=result.seq,
-                text=result.text,
-                page_number=result.page_number,
-                sources=result.sources,
-            )
-            for result in results
-        ]
+        results=[SearchResultResponse.model_validate(result) for result in results]
     )
