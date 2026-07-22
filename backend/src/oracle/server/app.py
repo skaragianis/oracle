@@ -4,7 +4,7 @@ import sqlite3
 import tempfile
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Annotated
 
@@ -60,11 +60,8 @@ def _shutdown_gracefully(
     _shutting_down.set()
     acquired = _ingest_slot.acquire(timeout=timeout)
     try:
-        conn = connection_factory()
-        try:
+        with closing(connection_factory()) as conn:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        finally:
-            conn.close()
         vector_index.close()
     finally:
         if acquired:
@@ -173,8 +170,7 @@ def _process_document_in_background(
         # already passing this check, so it must be checked again once held.
         if _shutting_down.is_set():
             return
-        conn = connection_factory()
-        try:
+        with closing(connection_factory()) as conn:
             ingest.process_document(
                 conn,
                 doc_id,
@@ -182,8 +178,6 @@ def _process_document_in_background(
                 vector_index=vector_index,
                 should_stop=_shutting_down.is_set,
             )
-        finally:
-            conn.close()
 
 
 def _reprocess_pending_in_background(
@@ -191,24 +185,18 @@ def _reprocess_pending_in_background(
     uploads_dir: Path,
     vector_index: embeddings.VectorIndex,
 ) -> None:
-    conn = connection_factory()
-    try:
+    with closing(connection_factory()) as conn:
         pending = documents.list_pending_documents(conn)
-    finally:
-        conn.close()
 
     for doc_id, stored_filename in pending:
         if _shutting_down.is_set():
             return
         stored_path = uploads_dir / stored_filename
         if not stored_path.is_file():
-            conn = connection_factory()
-            try:
+            with closing(connection_factory()) as conn:
                 documents.mark_document_failed(
                     conn, doc_id, f"Uploaded file missing: {stored_path}"
                 )
-            finally:
-                conn.close()
             continue
         _process_document_in_background(
             connection_factory, vector_index, doc_id, stored_path
