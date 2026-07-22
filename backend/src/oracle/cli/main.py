@@ -6,6 +6,7 @@ from pathlib import Path
 
 from oracle.common import db, documents, embeddings, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
+from oracle.common.search import SearchSource
 
 
 def main() -> None:
@@ -14,17 +15,18 @@ def main() -> None:
     _run(parser, args)
 
 
-def _parse_sources(value: str) -> list[str]:
-    sources = [source.strip() for source in value.split(",") if source.strip()]
-    if not sources:
+def _parse_sources(value: str) -> list[SearchSource]:
+    tokens = [source.strip() for source in value.split(",") if source.strip()]
+    if not tokens:
         raise argparse.ArgumentTypeError("--sources must not be empty")
-    for source in sources:
-        if source not in search.SEARCH_SOURCES:
+    valid_values = {source.value for source in SearchSource}
+    for token in tokens:
+        if token not in valid_values:
             raise argparse.ArgumentTypeError(
-                f"unknown source '{source}', expected one of "
-                f"{', '.join(search.SEARCH_SOURCES)}"
+                f"unknown source '{token}', expected one of "
+                f"{', '.join(source.value for source in SearchSource)}"
             )
-    return sources
+    return [SearchSource(token) for token in tokens]
 
 
 def _parse_document_ids(value: str) -> list[int]:
@@ -75,7 +77,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--sources",
         metavar="SOURCES",
         type=_parse_sources,
-        default=list(search.SEARCH_SOURCES),
+        default=list(SearchSource),
         help="Comma-separated search sources to use with --search "
         "(default: bm25,vector)",
     )
@@ -168,7 +170,7 @@ def _list(conn: sqlite3.Connection) -> None:
 def _search(
     conn: sqlite3.Connection,
     query: str,
-    sources: list[str],
+    sources: list[SearchSource],
     document_ids: list[int] | None,
 ) -> None:
     results = search.search_hybrid(

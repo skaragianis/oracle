@@ -16,8 +16,6 @@ class SearchSource(StrEnum):
     VECTOR = "vector"
 
 
-SEARCH_SOURCES = tuple(source.value for source in SearchSource)
-
 STOP_WORDS = frozenset(
     {
         "a",
@@ -117,7 +115,7 @@ def search_chunks(
         "LIMIT ?",
         params,
     ).fetchall()
-    return [_row_to_result(row, source="bm25") for row in rows]
+    return [_row_to_result(row, source=SearchSource.BM25) for row in rows]
 
 
 def search_vectors(
@@ -143,7 +141,9 @@ def search_vectors(
         f"WHERE chunks.id IN ({placeholders}) AND documents.status = 'ready'",
         [match.chunk_id for match in matches],
     ).fetchall()
-    results_by_chunk_id = {row[2]: _row_to_result(row, source="vector") for row in rows}
+    results_by_chunk_id = {
+        row[2]: _row_to_result(row, source=SearchSource.VECTOR) for row in rows
+    }
     # Preserve the index's nearest-first order; drop ids the database no longer has.
     return [
         results_by_chunk_id[match.chunk_id]
@@ -156,16 +156,16 @@ def search_hybrid(
     conn: sqlite3.Connection,
     vector_index: VectorIndex,
     query: str,
-    sources: Sequence[str] = SEARCH_SOURCES,
+    sources: Sequence[SearchSource] = tuple(SearchSource),
     document_ids: Sequence[int] | None = None,
 ) -> list[SearchResult]:
     if document_ids is not None and not document_ids:
         return []
 
     rankings = []
-    if "bm25" in sources:
+    if SearchSource.BM25 in sources:
         rankings.append(search_chunks(conn, query, document_ids=document_ids))
-    if "vector" in sources:
+    if SearchSource.VECTOR in sources:
         rankings.append(
             search_vectors(conn, vector_index, query, document_ids=document_ids)
         )
@@ -193,7 +193,9 @@ def reciprocal_rank_fusion(
     return ordered[:limit]
 
 
-def _row_to_result(row: sqlite3.Row | tuple[Any, ...], *, source: str) -> SearchResult:
+def _row_to_result(
+    row: sqlite3.Row | tuple[Any, ...], *, source: SearchSource
+) -> SearchResult:
     return SearchResult(
         doc_id=row[0],
         filename=row[1],
@@ -201,5 +203,5 @@ def _row_to_result(row: sqlite3.Row | tuple[Any, ...], *, source: str) -> Search
         seq=row[3],
         text=row[4],
         page_number=row[5],
-        sources=[source],
+        sources=[source.value],
     )
