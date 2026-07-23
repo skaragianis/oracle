@@ -1,3 +1,4 @@
+import logging
 import os
 import sqlite3
 import subprocess
@@ -42,6 +43,21 @@ def _write_pdf(
         for paragraph in paragraphs:
             page.insert_text((72, y), paragraph)
             y += 20 * (paragraph.count("\n") + 1) + 20
+    doc.save(path)
+    doc.close()
+
+
+def _write_pdf_with_corrupt_page(
+    path: Path, pages: list[str], corrupt_page: int
+) -> None:
+    """Append junk operators to one page's content stream, as some PDF
+    producers emit. MuPDF recovers and still extracts the page's text."""
+    doc = fitz.open()
+    for text in pages:
+        page = doc.new_page(width=612, height=842)
+        page.insert_text((72, 72), text)
+    xref = doc[corrupt_page - 1].get_contents()[0]
+    doc.update_stream(xref, doc.xref_stream(xref) + b"\nQQ bogus [ /Nope")
     doc.save(path)
     doc.close()
 
@@ -548,6 +564,60 @@ def test_chunk_document_splits_long_pdf_into_multiple_chunks(
                 : len(previous_lines) - overlap_index
             ]
         )
+
+
+def test_chunk_document_logs_mupdf_warnings_against_the_offending_page(
+    tmp_path: Path, conn: sqlite3.Connection, caplog: pytest.LogCaptureFixture
+) -> None:
+    source = tmp_path / "corrupt.pdf"
+    _write_pdf_with_corrupt_page(
+        source, ["Page one text here.", "Page two text here."], corrupt_page=2
+    )
+
+    doc_id = conn.execute(
+        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes) "
+        "VALUES ('corrupt.pdf', 'stored.pdf', 'application/pdf', 1)"
+    ).lastrowid
+    conn.commit()
+    assert doc_id is not None
+
+    with caplog.at_level(logging.WARNING, logger="oracle.common.ingest"):
+        chunk_count = chunk_document(conn, doc_id, source)
+
+    # MuPDF recovers, so the malformed page must still be chunked
+    assert chunk_count > 0
+    text = " ".join(
+        row[0]
+        for row in conn.execute(
+            "SELECT text FROM chunks WHERE doc_id = ? ORDER BY seq", (doc_id,)
+        )
+    )
+    assert "Page one text here." in text
+    assert "Page two text here." in text
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages
+    assert all(f"doc {doc_id} page 2" in message for message in messages)
+    assert any("array not closed" in message for message in messages)
+
+
+def test_chunk_document_stays_quiet_for_a_well_formed_pdf(
+    tmp_path: Path, conn: sqlite3.Connection, caplog: pytest.LogCaptureFixture
+) -> None:
+    source = tmp_path / "clean.pdf"
+    _write_pdf(source, [["Page one text here."], ["Page two text here."]])
+
+    doc_id = conn.execute(
+        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes) "
+        "VALUES ('clean.pdf', 'stored.pdf', 'application/pdf', 1)"
+    ).lastrowid
+    conn.commit()
+    assert doc_id is not None
+
+    with caplog.at_level(logging.WARNING, logger="oracle.common.ingest"):
+        chunk_document(conn, doc_id, source)
+
+    assert caplog.records == []
 
 
 def test_chunk_document_returns_zero_for_blank_pdf(

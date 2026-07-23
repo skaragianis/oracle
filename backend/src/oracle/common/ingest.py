@@ -20,6 +20,11 @@ from oracle.common import chunks, documents, embeddings
 
 logger = logging.getLogger(__name__)
 
+# MuPDF's C layer writes parser complaints straight to stderr, bypassing logging
+# and arriving with no document or page attached. Route them through
+# _drain_mupdf_warnings instead, which is the only reader of that buffer.
+fitz.TOOLS.mupdf_display_errors(False)
+
 SUPPORTED_SUFFIXES = {".pdf", ".docx"}
 
 DEFAULT_UPLOADS_DIR = Path(
@@ -222,7 +227,7 @@ def chunk_document(
     suffix = path.suffix.lower()
     lines: Iterator[LineSegment]
     if suffix == ".pdf":
-        lines = _iter_pdf_lines(path)
+        lines = _iter_pdf_lines(path, doc_id)
     elif suffix == ".docx":
         lines = _iter_docx_lines(path)
     else:
@@ -255,11 +260,27 @@ def _split_into_paragraphs(block_text: str) -> list[str]:
     return paragraphs
 
 
-def _iter_pdf_lines(pdf_path: Path) -> Iterator[LineSegment]:
+def _drain_mupdf_warnings(doc_id: int, page_number: int | None = None) -> None:
+    messages = fitz.TOOLS.mupdf_warnings()
+    if not messages:
+        return
+    location = f"doc {doc_id}"
+    if page_number is not None:
+        location += f" page {page_number}"
+    for message in messages.splitlines():
+        logger.warning(
+            "MuPDF recovered from a malformed PDF (%s): %s", location, message
+        )
+
+
+def _iter_pdf_lines(pdf_path: Path, doc_id: int) -> Iterator[LineSegment]:
     paragraph_index = -1
     with fitz.open(pdf_path) as doc:
+        _drain_mupdf_warnings(doc_id)
         for page_number, page in enumerate(doc, start=1):
-            for block in page.get_text("blocks"):
+            blocks = page.get_text("blocks")
+            _drain_mupdf_warnings(doc_id, page_number)
+            for block in blocks:
                 block_text = block[4]
                 if not block_text.strip():
                     continue
