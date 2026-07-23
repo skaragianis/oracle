@@ -17,12 +17,14 @@ setup: ## Install backend and frontend deps, plus Playwright's browser binaries
 
 up: ## Build and run the whole app in docker at http://localhost:8080
 	docker build -t $(IMAGE) .
+	@docker stop $(CONTAINER) >/dev/null 2>&1 || true
 	@docker rm -f $(CONTAINER) >/dev/null 2>&1 || true
-	docker run -d --name $(CONTAINER) -p $(PORT):80 -v $(VOLUME):/data $(IMAGE)
+	docker run -d --init --name $(CONTAINER) -p $(PORT):80 -v $(VOLUME):/data $(IMAGE)
 	@echo "Running at http://localhost:$(PORT)"
 
 down: ## Stop and remove the docker container (the data volume is kept)
-	docker rm -f $(CONTAINER)
+	docker stop $(CONTAINER)
+	docker rm $(CONTAINER)
 
 logs: ## Tail the docker container logs
 	docker logs -f $(CONTAINER)

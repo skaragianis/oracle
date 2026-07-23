@@ -60,8 +60,22 @@ EOF
 COPY <<'EOF' /app/start.sh
 #!/bin/bash
 set -e
+
+# Bash does not relay signals to background children, so `docker stop` would
+# otherwise kill this script and leave uvicorn to be SIGKILLed on timeout --
+# no graceful shutdown, mid-write SQLite and vector index.
+shutdown() {
+    kill -TERM "$server_pid" "$nginx_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+    exit 0
+}
+trap shutdown TERM INT
+
 /app/backend/.venv/bin/oracle-server &
+server_pid=$!
 nginx -g 'daemon off;' &
+nginx_pid=$!
+
 wait -n
 EOF
 RUN chmod +x /app/start.sh
