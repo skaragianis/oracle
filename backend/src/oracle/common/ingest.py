@@ -160,12 +160,11 @@ def _embed_document_chunks(
     vector_index: embeddings.VectorIndex,
     should_stop: ShouldStop | None = None,
 ) -> None:
-    rows = conn.execute(
+    cursor = conn.execute(
         "SELECT id, text FROM chunks WHERE doc_id = ? ORDER BY seq", (doc_id,)
-    ).fetchall()
-    for start in range(0, len(rows), embeddings.EMBED_BATCH_SIZE):
+    )
+    while batch := cursor.fetchmany(embeddings.EMBED_BATCH_SIZE):
         _check_stop(should_stop)
-        batch = rows[start : start + embeddings.EMBED_BATCH_SIZE]
         vector_index.index_chunks(
             doc_id,
             [embeddings.ChunkToIndex(chunk_id=row[0], text=row[1]) for row in batch],
