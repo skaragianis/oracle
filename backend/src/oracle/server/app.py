@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import sqlite3
@@ -15,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from oracle.common import db, documents, embeddings, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
 from oracle.common.search import SearchSource
+
+logger = logging.getLogger(__name__)
 
 SHUTDOWN_INGEST_TIMEOUT_SECONDS = 10
 
@@ -39,6 +42,12 @@ def _startup(
 ) -> embeddings.VectorIndex:
     global _reprocess_thread
     _shutting_down.clear()
+    logger.info(
+        "Starting Oracle server (db=%s uploads=%s vectors=%s)",
+        db.DEFAULT_DB_PATH,
+        uploads_dir,
+        embeddings.DEFAULT_VECTOR_DB_PATH,
+    )
     db.run_migrations()
     vector_index = embeddings.get_default_vector_index()
     _reprocess_thread = threading.Thread(
@@ -58,7 +67,12 @@ def _shutdown_gracefully(
     connection_factory: Callable[[], sqlite3.Connection] = db.get_connection,
 ) -> None:
     _shutting_down.set()
+    logger.info("Shutting down, waiting up to %ss for in-flight ingest", timeout)
     acquired = _ingest_slot.acquire(timeout=timeout)
+    if not acquired:
+        logger.warning(
+            "Ingest still running after %ss; checkpointing anyway", timeout
+        )
     try:
         with closing(connection_factory()) as conn:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -168,11 +182,13 @@ def _process_document_in_background(
     stored_path: Path,
 ) -> None:
     if _shutting_down.is_set():
+        logger.debug("Skipping document %s, shutting down", doc_id)
         return
     with _ingest_slot:
         # A second queued task can have been blocked on the semaphore above
         # already passing this check, so it must be checked again once held.
         if _shutting_down.is_set():
+            logger.debug("Skipping document %s, shutting down", doc_id)
             return
         with closing(connection_factory()) as conn:
             ingest.process_document(
@@ -192,11 +208,18 @@ def _reprocess_pending_in_background(
     with closing(connection_factory()) as conn:
         pending = documents.list_pending_documents(conn)
 
+    if pending:
+        logger.info("Resuming %d document(s) left pending", len(pending))
+
     for doc_id, stored_filename in pending:
         if _shutting_down.is_set():
+            logger.info("Stopped resuming pending documents, shutting down")
             return
         stored_path = uploads_dir / stored_filename
         if not stored_path.is_file():
+            logger.warning(
+                "Failing document %s, its upload is missing: %s", doc_id, stored_path
+            )
             with closing(connection_factory()) as conn:
                 documents.mark_document_failed(
                     conn, doc_id, f"Uploaded file missing: {stored_path}"

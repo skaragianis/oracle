@@ -3,6 +3,7 @@ from typing import override
 
 import uvicorn
 
+from oracle.common.logging_config import configure_logging
 from oracle.server import app
 
 
@@ -14,10 +15,12 @@ class _Server(uvicorn.Server):
 
 
 def main() -> None:
+    configure_logging()
     config = uvicorn.Config(
         "oracle.server.app:app",
         host="127.0.0.1",
         port=8000,
+        log_config=None,
         timeout_graceful_shutdown=app.SHUTDOWN_INGEST_TIMEOUT_SECONDS,
     )
     try:

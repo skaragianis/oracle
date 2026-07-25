@@ -1,4 +1,6 @@
+import logging
 import sqlite3
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -6,9 +8,13 @@ from typing import Any
 
 from oracle.common.embeddings import VectorIndex
 
+logger = logging.getLogger(__name__)
+
 RESULTS_PER_INDEX = 10
 FUSED_RESULT_LIMIT = 5
 RRF_K = 60
+
+LOGGED_QUERY_CHARS = 60
 
 
 class SearchSource(StrEnum):
@@ -162,6 +168,7 @@ def search_hybrid(
     if document_ids is not None and not document_ids:
         return []
 
+    started = time.monotonic()
     rankings = []
     if SearchSource.BM25 in sources:
         rankings.append(search_chunks(conn, query, document_ids=document_ids))
@@ -169,7 +176,18 @@ def search_hybrid(
         rankings.append(
             search_vectors(conn, vector_index, query, document_ids=document_ids)
         )
-    return reciprocal_rank_fusion(rankings)
+    results = reciprocal_rank_fusion(rankings)
+
+    logger.debug("Per-index hits: %s", [len(ranking) for ranking in rankings])
+    logger.info(
+        "Search %r via %s over %s: %d results in %.2fs",
+        query[:LOGGED_QUERY_CHARS],
+        "+".join(source.value for source in sources),
+        "all documents" if document_ids is None else f"{len(document_ids)} documents",
+        len(results),
+        time.monotonic() - started,
+    )
+    return results
 
 
 def reciprocal_rank_fusion(

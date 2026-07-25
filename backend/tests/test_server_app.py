@@ -1,4 +1,5 @@
 import io
+import logging
 import sqlite3
 import threading
 import time
@@ -634,6 +635,38 @@ def test_reprocess_pending_in_background_fails_a_document_with_missing_upload(
     assert "Uploaded file missing" in error
 
 
+def test_reprocess_pending_in_background_warns_about_a_missing_upload(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    tmp_path: Path,
+    vector_index: VectorIndex,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    uploads_dir = tmp_path / "uploads"
+    doc_id = documents.create_document(
+        conn,
+        filename="source.pdf",
+        stored_filename="missing.pdf",
+        mime_type="application/pdf",
+        size_bytes=1,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="oracle.server.app"):
+        _reprocess_pending_in_background(
+            lambda: sqlite3.connect(db_path), uploads_dir, vector_index
+        )
+
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+    ]
+    assert any(
+        f"document {doc_id}" in message and "missing" in message
+        for message in warnings
+    )
+
+
 def test_startup_returns_before_the_backlog_finishes(
     db_path: Path,
     vector_index: VectorIndex,
@@ -735,3 +768,37 @@ def test_shutdown_gracefully_falls_through_when_ingest_holds_the_slot(
         holder.join(timeout=1)
 
     assert elapsed < 1.0
+
+
+def test_shutdown_gracefully_warns_when_ingest_outlasts_the_timeout(
+    db_path: Path, vector_index: VectorIndex, caplog: pytest.LogCaptureFixture
+) -> None:
+    held = threading.Event()
+    release = threading.Event()
+
+    def hold_ingest_slot() -> None:
+        _ingest_slot.acquire()
+        held.set()
+        release.wait()
+        _ingest_slot.release()
+
+    holder = threading.Thread(target=hold_ingest_slot)
+    holder.start()
+    assert held.wait(timeout=1)
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="oracle.server.app"):
+            _shutdown_gracefully(
+                vector_index,
+                timeout=0.2,
+                connection_factory=lambda: db.get_connection(db_path),
+            )
+    finally:
+        release.set()
+        holder.join(timeout=1)
+
+    # Abandoning an in-flight ingest at the timeout must leave a trace
+    assert any(
+        record.levelno == logging.WARNING and "still running" in record.getMessage()
+        for record in caplog.records
+    )

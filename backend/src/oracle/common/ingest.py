@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import sqlite3
+import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -122,6 +123,13 @@ def stage_file(
             size_bytes=destination_path.stat().st_size,
         )
 
+    logger.info(
+        "%s %s as document %s (%d bytes)",
+        "Replaced" if existing is not None else "Staged",
+        source_path.name,
+        doc_id,
+        destination_path.stat().st_size,
+    )
     return StagedDocument(
         doc_id=doc_id,
         destination_path=destination_path,
@@ -137,13 +145,15 @@ def process_document(
     should_stop: ShouldStop | None = None,
 ) -> ProcessResult:
     stored_path = Path(stored_path)
+    logger.info("Processing document %s at %s", doc_id, stored_path)
+    started = time.monotonic()
 
     try:
         # May occur if previously interrupted
         chunks.delete_chunks_for_document(conn, doc_id)
         if vector_index is not None:
             vector_index.delete_document(doc_id)
-        chunk_document(conn, doc_id, stored_path, should_stop=should_stop)
+        chunk_count = chunk_document(conn, doc_id, stored_path, should_stop=should_stop)
         if vector_index is not None:
             _embed_document_chunks(conn, doc_id, vector_index, should_stop=should_stop)
     except IngestInterrupted:
@@ -156,6 +166,12 @@ def process_document(
         return ProcessResult(status="failed", error=error)
 
     documents.mark_document_ready(conn, doc_id)
+    logger.info(
+        "Document %s ready: %d chunks in %.1fs",
+        doc_id,
+        chunk_count,
+        time.monotonic() - started,
+    )
     return ProcessResult(status="ready", error=None)
 
 
@@ -233,7 +249,7 @@ def chunk_document(
     else:
         raise UnsupportedFileTypeError(f"Cannot chunk {suffix} documents yet")
 
-    return _chunk_lines(
+    chunk_count = _chunk_lines(
         conn,
         doc_id,
         lines,
@@ -242,6 +258,10 @@ def chunk_document(
         overlap_tokens=overlap_tokens,
         should_stop=should_stop,
     )
+    logger.debug(
+        "Chunked %s into %d chunks for document %s", path.name, chunk_count, doc_id
+    )
+    return chunk_count
 
 
 _HYPHENATED_BREAK_RE = re.compile(r"(\w)-\n(\w)")
@@ -392,15 +412,20 @@ def delete_document(
 ) -> bool:
     stored_filename = documents.get_stored_filename(conn, doc_id)
     if stored_filename is None:
+        logger.debug("Nothing to delete, no document %s", doc_id)
         return False
     chunks.delete_chunks_for_document(conn, doc_id)
     if vector_index is not None:
         vector_index.delete_document(doc_id)
     documents.delete_document(conn, doc_id)
     (uploads_dir / stored_filename).unlink(missing_ok=True)
+    logger.info("Deleted document %s and its upload %s", doc_id, stored_filename)
     return True
 
 
 def remove_document_uploads() -> None:
+    removed = 0
     for item in DEFAULT_UPLOADS_DIR.iterdir():
         item.unlink()
+        removed += 1
+    logger.info("Removed %d uploads from %s", removed, DEFAULT_UPLOADS_DIR)

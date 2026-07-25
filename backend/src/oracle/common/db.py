@@ -1,6 +1,9 @@
+import logging
 import os
 import sqlite3
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
 MIGRATIONS_DIR = PACKAGE_ROOT / "migrations"
@@ -33,6 +36,9 @@ def apply_migrations(
         path for path in migrations_dir.glob("*.sql") if path.name not in applied
     )
 
+    if not pending:
+        logger.debug("Schema up to date, %d migrations already applied", len(applied))
+
     applied_now = []
     for path in pending:
         conn.executescript(path.read_text())
@@ -40,6 +46,7 @@ def apply_migrations(
             conn.execute(
                 "INSERT INTO schema_migrations (version) VALUES (?)", (path.name,)
             )
+        logger.info("Applied migration %s", path.name)
         applied_now.append(path.name)
 
     return applied_now

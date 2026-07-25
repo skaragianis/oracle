@@ -6,12 +6,14 @@ from pathlib import Path
 
 from oracle.common import db, documents, embeddings, ingest, search
 from oracle.common.ingest import UnsupportedFileTypeError
+from oracle.common.logging_config import configure_logging
 from oracle.common.search import SearchSource
 
 
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+    configure_logging("INFO" if args.verbose else "WARNING")
     _run(parser, args)
 
 
@@ -80,6 +82,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=list(SearchSource),
         help="Comma-separated search sources to use with --search "
         "(default: bm25,vector)",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Log what the command is doing to stderr",
     )
     parser.add_argument(
         "--documents",

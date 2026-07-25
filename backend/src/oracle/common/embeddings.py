@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -8,6 +9,9 @@ import chromadb
 import chromadb.api.client
 
 from oracle.common.db import PACKAGE_ROOT
+from oracle.common.logging_config import silence_library_handlers
+
+logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 COLLECTION_NAME = "chunks"
@@ -55,6 +59,7 @@ class VectorIndex:
         self._client = client
 
     def close(self) -> None:
+        logger.debug("Closing vector index")
         self._client.close()
 
     def index_chunks(self, doc_id: int, chunks: Sequence[ChunkToIndex]) -> None:
@@ -68,9 +73,11 @@ class VectorIndex:
             embeddings=[[float(value) for value in vector] for vector in embeddings],
             metadatas=[{"doc_id": doc_id} for _ in chunks],
         )
+        logger.debug("Embedded %d chunks for document %s", len(chunks), doc_id)
 
     def delete_document(self, doc_id: int) -> None:
         self._collection.delete(where={"doc_id": doc_id})
+        logger.debug("Deleted vectors for document %s", doc_id)
 
     def search(
         self, query: str, limit: int, doc_ids: Sequence[int] | None = None
@@ -101,6 +108,13 @@ def open_vector_index(
     """Downloads the embedding model on first use — call at startup, not per request."""
     from fastembed import TextEmbedding
 
+    silence_library_handlers()
+
+    logger.info(
+        "Loading embedding model %s from %s (downloaded on first run)",
+        EMBEDDING_MODEL_NAME,
+        model_cache_dir,
+    )
     embedder = TextEmbedding(EMBEDDING_MODEL_NAME, cache_dir=str(model_cache_dir))
     # PersistentClient is annotated as returning the abstract ClientAPI, but it
     # always constructs a concrete Client, which is what actually has .close().
@@ -109,6 +123,9 @@ def open_vector_index(
     )
     collection = client.get_or_create_collection(
         COLLECTION_NAME, configuration={"hnsw": {"space": "cosine"}}
+    )
+    logger.info(
+        "Vector index ready at %s with %d vectors", vector_db_path, collection.count()
     )
     return VectorIndex(collection, embedder, client=client)
 
