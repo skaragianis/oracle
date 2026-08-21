@@ -3,9 +3,16 @@
 A project to experiment with Retrieval Augmented Generation (RAG).
 
 So far it supports vector embeddings and BM25 for similarity searches. Search
-results are combined using recipricol rank fusion. Offers a CLI and web
+results are combined using reciprocal rank fusion. Offers a CLI and web
 application operating on the same data. Not multi-user; local personal use 
 only.
+
+## Usage
+
+Upload word and pdf documents. Execute your search by pressing the "Ask
+Oracle" button. Click the "Copy question & results for an LLM" button to take
+the detail via your clipboard to an LLM. It now has your question and search
+results to ponder.
 
 ## Technologies
 
@@ -32,7 +39,7 @@ chunks_fts table that calculates FTS5 for each inserted chunk.
 Embedding iterates a document's chunks in batches of EMBED_BATCH_SIZE,
 creating text embeddings using fastembed that are stored in chromadb.
 
-Search takes the top 10 matches using BM25 based on dropping stop words and
+Search takes the top 10 matches using BM25, based on dropping stop words and
 OR'ing the resulting terms, and the top 10 vector matches in chromadb for the
 embedded query. Either index can be used on its own, and only chunks of ready
 documents are included. It then does a reciprocal rank fusion to produce a top
