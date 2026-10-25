@@ -4,7 +4,7 @@ A project to experiment with Retrieval Augmented Generation (RAG).
 
 So far it supports vector embeddings and BM25 for similarity searches. Search
 results are combined using reciprocal rank fusion. Offers a CLI and web
-application operating on the same data. Not multi-user; local personal use 
+application operating on the same data. Not multi-user; local personal use
 only.
 
 ## Usage
@@ -61,7 +61,7 @@ documents are included. It then does a reciprocal rank fusion to produce a top
 make up
 ```
 
-Available at http://localhost:8080
+Available at <http://localhost:8080>
 
 ## CLI Usage
 

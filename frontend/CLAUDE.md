@@ -44,6 +44,7 @@ pnpm test tests/api.test.ts  # single file (no `--`)
   - Specs are typechecked by `tsconfig.app.json` (they import app types), the config by `tsconfig.node.json`.
 
 Playwright gotchas (all in `playwright.config.ts`):
+
 - The e2e **database is emptied inside the `webServer` command**, not in the config body or a `globalSetup` — Playwright re-imports the config per worker and starts `webServer` before `globalSetup`, so either would delete the db out from under a migrated server (`no such table: documents`).
 - **Ingestion is slow** (~18s for the 60-page fixture, embedding on CPU) — specs use 60s waits and a 180s per-test timeout; don't tighten them. The first-ever run also downloads the embedding model (webServer allows 180s). If you change these specs, verify they still fail when `watchPending()` in `App.vue` is commented out — that's what catches vacuous specs.
 
@@ -53,7 +54,7 @@ The SPA calls **relative** `/api/*` (same-origin, no CORS). In dev, `vite.config
 
 ## Gotchas
 
-- **`typescript` is pinned to `~6.0.2` — do not upgrade to 7.** The native (Go) port ships no compiler API or `tsserver`; `vue-tsc` fails to start and native `tsc` can't read `.vue`. `vite build`/`vitest` still pass on TS 7, making it a *silent* loss of all Vue typechecking. Revisit only when `vue-tsc` supports TS 7.
+- **`typescript` is pinned to `~6.0.2` — do not upgrade to 7.** The native (Go) port ships no compiler API or `tsserver`; `vue-tsc` fails to start and native `tsc` can't read `.vue`. `vite build`/`vitest` still pass on TS 7, making it a _silent_ loss of all Vue typechecking. Revisit only when `vue-tsc` supports TS 7.
 - **Never add a `declare module '*.vue'` shim** — it makes every component `any`, destroying prop/emit typechecking. If `.vue` imports don't resolve, the editor's Vue language server is misconfigured; the code is fine (`pnpm typecheck` confirms).
 - **PrimeVue 4 ≠ PrimeReact.** `DataTable` has no `isDataSelectable` prop (Vue silently ignores unknown props); `DocumentTable.vue` enforces row-selectability by routing `v-model:selection` through a computed whose setter filters unready rows. Check the real PrimeVue 4 API before using a prop you remember.
 - **A document is only searchable once `ready`.** Unready rows are greyed out and can't be selected — don't treat `pending` as selectable. The upload response never carries the outcome; poll for it.

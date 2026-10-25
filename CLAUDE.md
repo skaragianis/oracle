@@ -14,7 +14,7 @@ Each app's CLAUDE.md is authoritative for its own commands, architecture, and go
 ## Conventions
 
 - Confirm the affected app's tests pass before starting; don't finish until its tests, linter, and typechecker are all clean.
-- **No narrating comments.** Comment only when the *why* is non-obvious — a real gotcha or non-local constraint. Otherwise let names and structure carry it.
+- **No narrating comments.** Comment only when the _why_ is non-obvious — a real gotcha or non-local constraint. Otherwise let names and structure carry it.
 
 ## Commands
 
