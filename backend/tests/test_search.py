@@ -1,4 +1,5 @@
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -24,10 +25,11 @@ from oracle.common.search import (
 
 
 @pytest.fixture
-def conn(tmp_path: Path) -> sqlite3.Connection:
+def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(tmp_path / "test.db")
     apply_migrations(connection)
-    return connection
+    yield connection
+    connection.close()
 
 
 def test_search_chunks_returns_empty_list_when_no_matches(

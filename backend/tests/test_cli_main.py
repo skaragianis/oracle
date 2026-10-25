@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pymupdf
@@ -39,11 +40,11 @@ def test_main_runs_migrations_on_startup_even_with_no_command(
 
     main()
 
-    conn = sqlite3.connect(db_path)
-    table = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='documents'"
-    ).fetchone()
-    assert table is not None
+    with closing(sqlite3.connect(db_path)) as conn:
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='documents'"
+        ).fetchone()
+        assert table is not None
 
 
 def test_main_add_ingests_file_and_records_document(
@@ -68,22 +69,23 @@ def test_main_add_ingests_file_and_records_document(
     assert len(stored_files) == 1
     assert stored_files[0].read_bytes() == source.read_bytes()
 
-    conn = sqlite3.connect(db_path)
-    row = conn.execute(
-        "SELECT filename, stored_filename, mime_type, size_bytes, status FROM documents"
-    ).fetchone()
-    assert row == (
-        "report.pdf",
-        stored_files[0].name,
-        "application/pdf",
-        source.stat().st_size,
-        "ready",
-    )
+    with closing(sqlite3.connect(db_path)) as conn:
+        row = conn.execute(
+            "SELECT filename, stored_filename, mime_type, size_bytes, status"
+            " FROM documents"
+        ).fetchone()
+        assert row == (
+            "report.pdf",
+            stored_files[0].name,
+            "application/pdf",
+            source.stat().st_size,
+            "ready",
+        )
 
-    chunk_row = conn.execute(
-        "SELECT text FROM chunks WHERE doc_id = (SELECT id FROM documents)"
-    ).fetchone()
-    assert chunk_row == ("Hello world.\n",)
+        chunk_row = conn.execute(
+            "SELECT text FROM chunks WHERE doc_id = (SELECT id FROM documents)"
+        ).fetchone()
+        assert chunk_row == ("Hello world.\n",)
 
 
 def test_main_add_twice_prints_re_added_and_keeps_one_document(
@@ -106,10 +108,10 @@ def test_main_add_twice_prints_re_added_and_keeps_one_document(
 
     captured = capsys.readouterr()
     assert captured.out.startswith("Re-added")
-    conn = sqlite3.connect(db_path)
-    count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-    assert count == 1
-    assert len(list(uploads_dir.iterdir())) == 1
+    with closing(sqlite3.connect(db_path)) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        assert count == 1
+        assert len(list(uploads_dir.iterdir())) == 1
 
 
 def test_main_add_missing_file_prints_friendly_error(
@@ -382,18 +384,17 @@ def test_main_search_without_documents_flag_excludes_non_ready_documents(
     main()
     capsys.readouterr()
 
-    conn = sqlite3.connect(db_path)
-    stuck_doc_id = conn.execute(
-        "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes, "
-        "status) VALUES (?, ?, ?, ?, ?)",
-        ("stuck.pdf", "uuid-stuck.pdf", "application/pdf", 10, "pending"),
-    ).lastrowid
-    conn.execute(
-        "INSERT INTO chunks (doc_id, seq, text, page_number) VALUES (?, ?, ?, ?)",
-        (stuck_doc_id, 0, "the quick brown fox stuck in review", None),
-    )
-    conn.commit()
-    conn.close()
+    with closing(sqlite3.connect(db_path)) as conn:
+        stuck_doc_id = conn.execute(
+            "INSERT INTO documents (filename, stored_filename, mime_type, size_bytes, "
+            "status) VALUES (?, ?, ?, ?, ?)",
+            ("stuck.pdf", "uuid-stuck.pdf", "application/pdf", 10, "pending"),
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO chunks (doc_id, seq, text, page_number) VALUES (?, ?, ?, ?)",
+            (stuck_doc_id, 0, "the quick brown fox stuck in review", None),
+        )
+        conn.commit()
 
     monkeypatch.setattr(sys, "argv", ["oracle-cli", "-s", "quick"])
     main()
@@ -426,10 +427,10 @@ def test_main_delete_removes_upload_document_and_chunks(
     assert "Deleted document 1" in captured.out
     assert list(uploads_dir.iterdir()) == []
 
-    conn = sqlite3.connect(db_path)
-    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
-    assert conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] == 0
-    assert conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0] == 0
+    with closing(sqlite3.connect(db_path)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0] == 0
 
 
 def test_main_delete_missing_document_prints_friendly_error(

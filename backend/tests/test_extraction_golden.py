@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +40,11 @@ FIXTURE_NAMES = [
 
 
 @pytest.fixture
-def conn(tmp_path: Path) -> sqlite3.Connection:
+def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(tmp_path / "test.db")
     apply_migrations(connection)
-    return connection
+    yield connection
+    connection.close()
 
 
 def _add_document(conn: sqlite3.Connection, filename: str) -> int:

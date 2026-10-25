@@ -39,13 +39,14 @@ def db_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def conn(db_path: Path) -> sqlite3.Connection:
+def conn(db_path: Path) -> Iterator[sqlite3.Connection]:
     # check_same_thread=False because one connection is shared across the whole
     # test while endpoints run on TestClient's threadpool. The app itself opens a
     # connection per request, on the thread that uses it, so it doesn't need this.
     connection = sqlite3.connect(db_path, check_same_thread=False)
     apply_migrations(connection)
-    return connection
+    yield connection
+    connection.close()
 
 
 @pytest.fixture

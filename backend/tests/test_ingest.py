@@ -4,7 +4,7 @@ import sqlite3
 import subprocess
 import sys
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import docx
@@ -26,10 +26,11 @@ from oracle.common.ingest import (
 
 
 @pytest.fixture
-def conn(tmp_path: Path) -> sqlite3.Connection:
+def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(tmp_path / "test.db")
     apply_migrations(connection)
-    return connection
+    yield connection
+    connection.close()
 
 
 def _write_pdf(
