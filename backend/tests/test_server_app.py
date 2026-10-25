@@ -9,7 +9,7 @@ from unittest import mock
 
 import docx
 import fitz
-import httpx
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
@@ -83,14 +83,14 @@ def _pdf_bytes(paragraphs: Iterable[str]) -> bytes:
     for paragraph in paragraphs:
         page.insert_text((72, y), paragraph)
         y += 40
-    pdf_bytes = doc.tobytes()
+    pdf_bytes = bytes(doc.tobytes())
     doc.close()
     return pdf_bytes
 
 
 def _upload(
     client: TestClient, filename: str, paragraphs: Iterable[str] = ("Hello world.",)
-) -> httpx.Response:
+) -> httpx2.Response:
     return client.post(
         "/documents",
         files={"file": (filename, _pdf_bytes(paragraphs), "application/pdf")},
@@ -684,19 +684,19 @@ def test_startup_returns_before_the_backlog_finishes(
     )
     monkeypatch.setattr(app_module.db, "run_migrations", lambda: None)
 
-    try:
-        start = time.monotonic()
-        returned_index = _startup(connection_factory=lambda: sqlite3.connect(db_path))
-        elapsed = time.monotonic() - start
+    start = time.monotonic()
+    returned_index = _startup(connection_factory=lambda: sqlite3.connect(db_path))
+    elapsed = time.monotonic() - start
+    reprocess_thread = app_module._reprocess_thread
+    assert reprocess_thread is not None
 
+    try:
         assert elapsed < 1.0
         assert returned_index is vector_index
-        assert app_module._reprocess_thread is not None
-        assert app_module._reprocess_thread.is_alive()
+        assert reprocess_thread.is_alive()
     finally:
         release.set()
-        if app_module._reprocess_thread is not None:
-            app_module._reprocess_thread.join(timeout=5)
+        reprocess_thread.join(timeout=5)
 
 
 def test_shutdown_gracefully_checkpoints_wal_and_closes_vector_index(

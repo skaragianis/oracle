@@ -102,7 +102,7 @@ def search_chunks(
 
     params: list[Any] = [fts_query]
     doc_filter = ""
-    if document_ids:
+    if document_ids is not None:
         placeholders = ", ".join("?" for _ in document_ids)
         doc_filter = f" AND chunks.doc_id IN ({placeholders})"
         params.extend(document_ids)
