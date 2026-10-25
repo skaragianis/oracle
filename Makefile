@@ -5,7 +5,7 @@ PORT := 8080
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit frontend-run frontend-test frontend-e2e frontend-lint frontend-audit test lint audit
+.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit backend-licenses frontend-run frontend-test frontend-e2e frontend-lint frontend-audit frontend-licenses test lint audit licenses
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  make %-16s %s\n", $$1, $$2}'
@@ -44,14 +44,17 @@ server-test: ## Run the API server and common tests
 backend-test: ## Run the full backend test suite (CLI, server, common)
 	cd backend && uv run pytest
 
-backend-lint: ## Lint, format-check and typecheck the backend (ruff + ty)
-	cd backend && uv run ruff check && uv run ruff format --check && uv run ty check
+backend-lint: ## Lint, format-check and typecheck the backend and scripts/ (ruff + ty)
+	cd backend && uv run ruff check . ../scripts && uv run ruff format --check . ../scripts && uv run ty check . ../scripts
 
 backend-embedding-check: ## Check the real embedding model still matches its golden vectors (downloads ~130MB on first run)
 	cd backend && uv run pytest -m embedding_model tests/test_embedding_stability.py
 
 backend-audit: ## Check backend dependencies for known vulnerabilities (uv audit)
 	cd backend && uv audit
+
+backend-licenses: ## Check backend dependency licenses against the allowlist (needs make setup)
+	python3 scripts/check_licenses.py backend
 
 frontend-run: ## Run the Vite dev server on 127.0.0.1:5173 (needs server-run)
 	cd frontend && pnpm dev --host
@@ -68,8 +71,13 @@ frontend-lint: ## Typecheck the frontend (vue-tsc)
 frontend-audit: ## Check frontend dependencies for known vulnerabilities (pnpm audit)
 	cd frontend && pnpm audit
 
+frontend-licenses: ## Check frontend dependency licenses against the allowlist (needs make setup)
+	python3 scripts/check_licenses.py frontend
+
 test: backend-test frontend-test ## Run all test suites
 
 lint: backend-lint frontend-lint ## Lint and typecheck the whole project
 
 audit: backend-audit frontend-audit ## Check all dependencies for known vulnerabilities
+
+licenses: backend-licenses frontend-licenses ## Check all dependency licenses against the allowlist
