@@ -7,6 +7,7 @@ const E2E_DATA_DIR = fileURLToPath(new URL('./e2e/.data', import.meta.url))
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: '**/visual/**',
   retries: 0,
   timeout: 180_000,
   use: { baseURL: BASE_URL, trace: 'retain-on-failure' },

@@ -1,4 +1,7 @@
 IMAGE := oracle
+PLAYWRIGHT_VERSION = $(shell cd frontend && node -p "require('@playwright/test/package.json').version")
+PLAYWRIGHT_IMAGE = mcr.microsoft.com/playwright:v$(PLAYWRIGHT_VERSION)-noble
+VISUAL_RUN = $(if $(PLAYWRIGHT_VERSION),,$(error Playwright is not installed in frontend/node_modules; run `make setup` first)) docker run --rm --init --ipc=host --user $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/work -w /work/frontend $(PLAYWRIGHT_IMAGE) ./node_modules/.bin/playwright test -c playwright.visual.config.ts
 CONTAINER := oracle
 VOLUME := oracle-data
 PORT := 8080
@@ -7,7 +10,7 @@ SMOKE_MODELS := oracle-smoke-models
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit backend-licenses frontend-run frontend-test frontend-e2e frontend-lint frontend-audit frontend-licenses docker-smoke-build docker-smoke-run docker-smoke test lint audit licenses
+.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit backend-licenses frontend-run frontend-test frontend-e2e frontend-visual frontend-visual-update frontend-lint frontend-audit frontend-licenses docker-smoke-build docker-smoke-run docker-smoke test lint audit licenses
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  make %-16s %s\n", $$1, $$2}'
@@ -74,6 +77,12 @@ frontend-test: ## Run the frontend unit tests (Vitest)
 
 frontend-e2e: ## Run the frontend end-to-end tests (Playwright)
 	cd frontend && pnpm test:e2e
+
+frontend-visual: ## Check the UI against the committed screenshots (Playwright container, mocked API, no backend)
+	$(VISUAL_RUN)
+
+frontend-visual-update: ## Regenerate the committed screenshots after an intended UI change (same container)
+	$(VISUAL_RUN) --update-snapshots
 
 frontend-lint: ## Typecheck the frontend (vue-tsc)
 	cd frontend && pnpm typecheck
