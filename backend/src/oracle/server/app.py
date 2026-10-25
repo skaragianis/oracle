@@ -4,7 +4,7 @@ import shutil
 import sqlite3
 import tempfile
 import threading
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Annotated
@@ -81,7 +81,7 @@ def _shutdown_gracefully(
 
 
 @asynccontextmanager
-async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def _lifespan(_: FastAPI) -> AsyncGenerator[None]:
     vector_index = _startup()
     yield
     _shutdown_gracefully(vector_index)
@@ -237,10 +237,9 @@ def _add_document(
     background_tasks: BackgroundTasks,
     file: UploadFile,
 ) -> UploadResponse:
-    if not file.filename:
+    filename = Path(file.filename or "").name
+    if not filename:
         raise HTTPException(status_code=400, detail="An uploaded file is required")
-
-    filename = Path(file.filename).name
 
     with tempfile.TemporaryDirectory() as staging_dir:
         staged_path = Path(staging_dir) / filename

@@ -174,7 +174,7 @@ def test_ingest_file_fails_a_malformed_docx(
     result = ingest_file(conn, source, uploads_dir=tmp_path / "uploads")
 
     assert result.status == "failed"
-    assert result.error
+    assert result.error not in (None, "")
     status = conn.execute(
         "SELECT status FROM documents WHERE id = ?", (result.doc_id,)
     ).fetchone()[0]

@@ -39,9 +39,10 @@ def list_documents(conn: sqlite3.Connection) -> list[Document]:
 
 
 def list_pending_documents(conn: sqlite3.Connection) -> list[tuple[int, str]]:
-    return conn.execute(
+    rows = conn.execute(
         "SELECT id, stored_filename FROM documents WHERE status = 'pending'"
     ).fetchall()
+    return [(int(row[0]), str(row[1])) for row in rows]
 
 
 def get_document(conn: sqlite3.Connection, document_id: int) -> Document | None:
@@ -57,9 +58,10 @@ def get_document(conn: sqlite3.Connection, document_id: int) -> Document | None:
 def find_document_by_filename(
     conn: sqlite3.Connection, filename: str
 ) -> tuple[int, str] | None:
-    return conn.execute(
+    row = conn.execute(
         "SELECT id, stored_filename FROM documents WHERE filename = ?", (filename,)
     ).fetchone()
+    return (int(row[0]), str(row[1])) if row is not None else None
 
 
 def mark_document_ready(conn: sqlite3.Connection, document_id: int) -> None:
@@ -84,7 +86,7 @@ def get_stored_filename(conn: sqlite3.Connection, document_id: int) -> str | Non
     row = conn.execute(
         "SELECT stored_filename FROM documents WHERE id = ?", (document_id,)
     ).fetchone()
-    return row[0] if row is not None else None
+    return str(row[0]) if row is not None else None
 
 
 def delete_document(conn: sqlite3.Connection, document_id: int) -> None:

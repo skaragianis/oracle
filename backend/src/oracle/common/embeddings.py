@@ -7,6 +7,7 @@ from typing import Any, Protocol, cast
 
 import chromadb
 import chromadb.api.client
+from chromadb.api.types import Where
 
 from oracle.common.db import PACKAGE_ROOT
 from oracle.common.logging_config import silence_library_handlers
@@ -86,7 +87,9 @@ class VectorIndex:
             return []
 
         vector = next(iter(self._embedder.query_embed(query)))
-        where = {"doc_id": {"$in": list(doc_ids)}} if doc_ids else None
+        where: Where | None = (
+            {"doc_id": {"$in": list(doc_ids)}} if doc_ids is not None else None
+        )
         result = self._collection.query(
             query_embeddings=[[float(value) for value in vector]],
             n_results=limit,

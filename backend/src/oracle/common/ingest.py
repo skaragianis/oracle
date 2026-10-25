@@ -324,8 +324,8 @@ def _iter_block_paragraphs(block: Paragraph | Table) -> Iterator[Paragraph]:
     if isinstance(block, Table):
         for row in block.rows:
             for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    yield paragraph
+                for inner in cell.iter_inner_content():
+                    yield from _iter_block_paragraphs(inner)
     else:
         yield block
 
