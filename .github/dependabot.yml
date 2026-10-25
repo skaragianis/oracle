@@ -32,6 +32,10 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@primevue/*"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 is the native compiler; vue-tsc crashes on it with
+      # ERR_PACKAGE_PATH_NOT_EXPORTED ./lib/tsc. Remove once vue-tsc supports TypeScript 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: /
