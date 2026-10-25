@@ -9,6 +9,7 @@ from conftest import make_vector_index
 
 from oracle.cli.main import _build_parser, main
 from oracle.common import db, embeddings, ingest
+from oracle.common.documents import SQLITE_INT_MAX, SQLITE_INT_MIN
 from oracle.common.embeddings import VectorIndex
 
 
@@ -445,6 +446,96 @@ def test_main_delete_missing_document_prints_friendly_error(
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
     assert "Error: no document found with id 1" in captured.err
+
+
+@pytest.mark.parametrize("bad_id", [SQLITE_INT_MAX + 1, SQLITE_INT_MIN - 1])
+def test_main_delete_rejects_an_out_of_range_id_as_a_usage_error(
+    bad_id: int,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--delete", str(bad_id)])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 2
+    err = capsys.readouterr().err
+    assert str(bad_id) in err
+
+
+@pytest.mark.parametrize("bad_id", [SQLITE_INT_MAX + 1, SQLITE_INT_MIN - 1])
+def test_main_search_rejects_an_out_of_range_document_id_as_a_usage_error(
+    bad_id: int,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(
+        sys, "argv", ["oracle-cli", "--search", "x", f"--documents=1,{bad_id}"]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 2
+    err = capsys.readouterr().err
+    assert str(bad_id) in err
+
+
+def test_main_search_rejects_a_non_integer_document_id_token_as_a_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(
+        sys, "argv", ["oracle-cli", "--search", "x", "--documents=1,abc"]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 2
+    assert "'abc'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("edge_id", [SQLITE_INT_MAX, SQLITE_INT_MIN, 0, -1])
+def test_main_delete_accepts_in_range_ids_and_reports_not_found(
+    edge_id: int,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(sys, "argv", ["oracle-cli", "--delete", str(edge_id)])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    assert f"no document found with id {edge_id}" in capsys.readouterr().err
+
+
+def test_main_search_accepts_boundary_document_ids(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", tmp_path / "oracle.db")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "oracle-cli",
+            "--search",
+            "x",
+            f"--documents={SQLITE_INT_MIN},{SQLITE_INT_MAX}",
+        ],
+    )
+
+    main()
+
+    assert "No results found." in capsys.readouterr().out
 
 
 def test_main_add_unsupported_extension_prints_friendly_error(

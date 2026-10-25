@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from oracle.common import db, documents, embeddings, ingest, search
+from oracle.common.documents import SQLITE_INT_MAX, SQLITE_INT_MIN
 from oracle.common.ingest import UnsupportedFileTypeError
 from oracle.common.logging_config import configure_logging
 from oracle.common.search import SearchSource
@@ -31,16 +32,24 @@ def _parse_sources(value: str) -> list[SearchSource]:
     return [SearchSource(token) for token in tokens]
 
 
+def _parse_document_id(value: str) -> int:
+    try:
+        document_id = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid integer id '{value}'")
+    if not SQLITE_INT_MIN <= document_id <= SQLITE_INT_MAX:
+        raise argparse.ArgumentTypeError(
+            f"document id {value} is out of range "
+            f"({SQLITE_INT_MIN} to {SQLITE_INT_MAX})"
+        )
+    return document_id
+
+
 def _parse_document_ids(value: str) -> list[int]:
     tokens = [token.strip() for token in value.split(",") if token.strip()]
     if not tokens:
         raise argparse.ArgumentTypeError("--documents must not be empty")
-    try:
-        return [int(token) for token in tokens]
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"--documents must be a comma-separated list of integers, got '{value}'"
-        )
+    return [_parse_document_id(token) for token in tokens]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -72,7 +81,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--delete",
         "-d",
         metavar="DOC_ID",
-        type=int,
+        type=_parse_document_id,
         help="Delete a document by id",
     )
     parser.add_argument(
