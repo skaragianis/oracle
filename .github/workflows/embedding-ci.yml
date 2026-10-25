@@ -38,7 +38,8 @@ jobs:
         run: uv sync
         working-directory: backend
 
-      # Same key as e2e-ci.yml so the two jobs share one cached model download.
+      # Same path and key as e2e-ci.yml and docker-ci.yml so the three jobs share one
+      # cached model download.
       - name: Cache embedding model
         uses: actions/cache@v6
         with:

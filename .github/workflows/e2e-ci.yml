@@ -60,7 +60,8 @@ jobs:
 
       # The backend downloads the embedding model on first startup (BAAI/bge-small-en-v1.5,
       # ~130MB); without this cache every run pays that download inside Playwright's
-      # webServer startup window.
+      # webServer startup window. Same path and key as embedding-ci.yml and
+      # docker-ci.yml, which share this cache entry.
       - name: Cache embedding model
         uses: actions/cache@v6
         with:
