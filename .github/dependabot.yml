@@ -9,6 +9,15 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    # PrimeVue 5 / primeicons 8 moved from MIT to the PrimeUI License, which needs a license key.
+    # Stay on the last MIT majors (primevue 4, primeicons 7).
+    ignore:
+      - dependency-name: "primevue"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "primeicons"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@primevue/*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: /
