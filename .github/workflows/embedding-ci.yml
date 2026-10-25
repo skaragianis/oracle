@@ -1,0 +1,50 @@
+name: Embedding CI
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - 'backend/uv.lock'
+      - 'backend/.python-version'
+      - 'backend/pyproject.toml'
+      - 'Makefile'
+      - 'backend/src/oracle/common/embeddings.py'
+      - 'backend/tests/test_embedding_stability.py'
+      - 'backend/tests/fixtures/embeddings/**'
+      - '.github/workflows/embedding-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/uv.lock'
+      - 'backend/.python-version'
+      - 'backend/pyproject.toml'
+      - 'Makefile'
+      - 'backend/src/oracle/common/embeddings.py'
+      - 'backend/tests/test_embedding_stability.py'
+      - 'backend/tests/fixtures/embeddings/**'
+      - '.github/workflows/embedding-ci.yml'
+
+jobs:
+  embedding-stability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync
+        working-directory: backend
+
+      # Same key as e2e-ci.yml so the two jobs share one cached model download.
+      - name: Cache embedding model
+        uses: actions/cache@v6
+        with:
+          path: backend/data/models
+          key: fastembed-bge-small-en-v1.5-${{ hashFiles('backend/uv.lock') }}
+          restore-keys: fastembed-bge-small-en-v1.5-
+
+      - name: Check embedding output against golden vectors
+        run: make backend-embedding-check
