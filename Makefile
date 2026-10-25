@@ -2,10 +2,12 @@ IMAGE := oracle
 CONTAINER := oracle
 VOLUME := oracle-data
 PORT := 8080
+SMOKE_IMAGE := oracle-smoke
+SMOKE_MODELS := oracle-smoke-models
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit backend-licenses frontend-run frontend-test frontend-e2e frontend-lint frontend-audit frontend-licenses test lint audit licenses
+.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit backend-licenses frontend-run frontend-test frontend-e2e frontend-lint frontend-audit frontend-licenses docker-smoke-build docker-smoke-run docker-smoke test lint audit licenses
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  make %-16s %s\n", $$1, $$2}'
@@ -28,6 +30,14 @@ down: ## Stop and remove the docker container (the data volume is kept)
 
 logs: ## Tail the docker container logs
 	docker logs -f $(CONTAINER)
+
+docker-smoke-build: ## Build the image the smoke test runs (tagged $(SMOKE_IMAGE))
+	docker build -t $(SMOKE_IMAGE) .
+
+docker-smoke-run: ## Smoke-test the built image on a throwaway data volume (model cache: SMOKE_MODELS)
+	python3 scripts/docker_smoke.py --image $(SMOKE_IMAGE) --models $(SMOKE_MODELS)
+
+docker-smoke: docker-smoke-build docker-smoke-run ## Build the image and smoke-test it (never touches oracle-data)
 
 cli-run: ## Run the CLI; pass arguments via ARGS="--help"
 	cd backend && uv run oracle-cli $(ARGS)
