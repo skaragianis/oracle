@@ -1089,6 +1089,58 @@ def test_get_document_404s_for_a_negative_id(client: TestClient) -> None:
     assert client.get("/documents/-1").status_code == 404
 
 
+SQLITE_INT_MAX = 2**63 - 1
+SQLITE_INT_MIN = -(2**63)
+OUT_OF_RANGE_IDS = [2**63, 10**30, SQLITE_INT_MIN - 1]
+
+
+@pytest.mark.parametrize("doc_id", OUT_OF_RANGE_IDS)
+@pytest.mark.parametrize("method", ["get", "delete"])
+def test_document_routes_422_for_ids_beyond_sqlite_integer(
+    client: TestClient, method: str, doc_id: int
+) -> None:
+    response = getattr(client, method)(f"/documents/{doc_id}")
+
+    errors = _validation_errors(response)
+    assert [loc for _, loc in errors] == [["path", "document_id"]]
+
+
+@pytest.mark.parametrize("doc_id", [SQLITE_INT_MAX, SQLITE_INT_MIN])
+@pytest.mark.parametrize("method", ["get", "delete"])
+def test_document_routes_404_at_the_sqlite_integer_boundaries(
+    client: TestClient, method: str, doc_id: int
+) -> None:
+    response = getattr(client, method)(f"/documents/{doc_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Document not found"}
+
+
+@pytest.mark.parametrize("doc_id", OUT_OF_RANGE_IDS)
+def test_search_422s_for_document_ids_beyond_sqlite_integer(
+    client: TestClient, doc_id: int
+) -> None:
+    response = client.post(
+        "/search", json={"query": "fox", "document_ids": [1, doc_id]}
+    )
+
+    errors = _validation_errors(response)
+    assert len(errors) == 1
+    assert errors[0][1] == ["body", "document_ids", 1]
+
+
+def test_search_accepts_document_ids_at_the_sqlite_integer_boundaries(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/search",
+        json={"query": "fox", "document_ids": [SQLITE_INT_MIN, SQLITE_INT_MAX]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"results": []}
+
+
 @pytest.mark.parametrize("bad_id", ["abc", "1.5", "0x10"])
 def test_get_document_422s_for_a_non_integer_id(
     client: TestClient, bad_id: str

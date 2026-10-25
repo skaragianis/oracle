@@ -126,6 +126,12 @@ ConnectionFactory = Annotated[
 VectorIndexDep = Annotated[embeddings.VectorIndex, Depends(get_vector_index)]
 
 
+# Ids outside SQLite's signed 64-bit INTEGER range make sqlite3 raise OverflowError.
+DocumentId = Annotated[
+    int, Field(ge=documents.SQLITE_INT_MIN, le=documents.SQLITE_INT_MAX)
+]
+
+
 class DocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -145,7 +151,7 @@ class UploadResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     sources: list[SearchSource] = Field(default=list(SearchSource), min_length=1)
-    document_ids: list[int] | None = None
+    document_ids: list[DocumentId] | None = None
 
 
 class SearchResultResponse(BaseModel):
@@ -278,7 +284,7 @@ def _list_documents(conn: Connection) -> list[DocumentResponse]:
 
 
 @app.get("/documents/{document_id}")
-def _get_document(conn: Connection, document_id: int) -> DocumentResponse:
+def _get_document(conn: Connection, document_id: DocumentId) -> DocumentResponse:
     """Polled by clients waiting for a pending document to reach a terminal status."""
     document = documents.get_document(conn, document_id)
     if document is None:
@@ -292,7 +298,7 @@ def _delete_document(
     conn: Connection,
     uploads_dir: UploadsDir,
     vector_index: VectorIndexDep,
-    document_id: int,
+    document_id: DocumentId,
 ) -> None:
     deleted = ingest.delete_document(
         conn, document_id, uploads_dir=uploads_dir, vector_index=vector_index

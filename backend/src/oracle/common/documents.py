@@ -1,6 +1,9 @@
 import sqlite3
 from dataclasses import dataclass
 
+SQLITE_INT_MIN = -(2**63)
+SQLITE_INT_MAX = 2**63 - 1
+
 
 @dataclass
 class Document:
