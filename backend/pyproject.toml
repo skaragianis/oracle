@@ -30,6 +30,9 @@ markers = [
     "embedding_model: loads the real embedding model (run via make backend-embedding-check)",
 ]
 addopts = "-m 'not embedding_model'"
+filterwarnings = [
+    "error",
+]
 
 [tool.ruff.lint]
 select = [
