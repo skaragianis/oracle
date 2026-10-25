@@ -1,9 +1,12 @@
 import io
 import logging
+import os
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -111,6 +114,19 @@ def _write_pdf_file(path: Path, paragraphs: Iterable[str] = ("Hello world.",)) -
     path.write_bytes(_pdf_bytes(paragraphs))
 
 
+def _validation_errors(response: httpx2.Response) -> list[tuple[str, list[object]]]:
+    assert response.status_code == 422
+    assert response.headers["content-type"] == "application/json"
+    items = response.json()["detail"]
+    for item in items:
+        assert {"type", "loc", "msg"} <= item.keys()
+    return [(item["type"], item["loc"]) for item in items]
+
+
+def _stub_background_processing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(app_module, "_process_document_in_background", lambda *a: None)
+
+
 def test_allowed_origins_is_empty_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     # The SPA is same-origin with the API by default, so no CORS is configured.
     monkeypatch.delenv("ORACLE_ALLOWED_ORIGINS", raising=False)
@@ -131,6 +147,7 @@ def test_allowed_origins_parses_a_comma_separated_list(
 def test_health(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
     assert response.json() == {"status": "ok"}
 
 
@@ -142,10 +159,15 @@ def test_add_document_stores_document_and_chunks(
     # 202, not 201: the upload is accepted as 'pending' and chunked in a
     # background task, which TestClient runs before returning the response.
     assert response.status_code == 202
+    assert response.headers["content-type"] == "application/json"
     body = response.json()
-    assert body["filename"] == "source.pdf"
-    assert body["replaced"] is False
-    assert body["status"] == "pending"
+    assert body == {
+        "id": body["id"],
+        "filename": "source.pdf",
+        "replaced": False,
+        "status": "pending",
+    }
+    assert type(body["id"]) is int
 
     doc_row = conn.execute(
         "SELECT filename, status FROM documents WHERE id = ?", (body["id"],)
@@ -167,8 +189,15 @@ def test_add_document_replaces_existing_document_with_same_filename(
     second = _upload(client, "source.pdf", ["Goodbye world."])
 
     assert second.status_code == 202
-    assert second.json()["replaced"] is True
-    assert second.json()["id"] == first.json()["id"]
+    assert second.json() == {
+        "id": first.json()["id"],
+        "filename": "source.pdf",
+        "replaced": True,
+        "status": "pending",
+    }
+    assert [doc["filename"] for doc in client.get("/documents").json()] == [
+        "source.pdf"
+    ]
 
     chunk_rows = conn.execute(
         "SELECT text FROM chunks WHERE doc_id = ?", (second.json()["id"],)
@@ -246,12 +275,16 @@ def test_add_document_rejects_unsupported_file_type(client: TestClient) -> None:
     )
 
     assert response.status_code == 415
+    assert response.headers["content-type"] == "application/json"
+    detail = response.json()["detail"]
+    assert isinstance(detail, str)
+    assert ".pdf" in detail and ".docx" in detail
 
 
 def test_add_document_requires_a_file(client: TestClient) -> None:
     response = client.post("/documents")
 
-    assert response.status_code == 422
+    assert _validation_errors(response) == [("missing", ["body", "file"])]
 
 
 def test_background_processing_serializes_concurrent_uploads(
@@ -343,6 +376,20 @@ def test_search_fuses_bm25_and_vector_matches_into_one_result(
     # The one chunk matches by keyword and is also the nearest vector; RRF
     # fuses those two hits into a single result carrying both sources.
     assert len(results) == 1
+    assert response.headers["content-type"] == "application/json"
+    assert set(results[0]) == {
+        "doc_id",
+        "filename",
+        "chunk_id",
+        "seq",
+        "text",
+        "page_number",
+        "sources",
+    }
+    assert set(response.json()) == {"results"}
+    assert type(results[0]["chunk_id"]) is int
+    assert type(results[0]["seq"]) is int
+    assert type(results[0]["page_number"]) is int
     assert results[0]["sources"] == ["bm25", "vector"]
     assert results[0]["doc_id"] == uploaded.json()["id"]
     assert results[0]["filename"] == "source.pdf"
@@ -385,7 +432,7 @@ def test_search_returns_no_results_when_nothing_is_indexed(client: TestClient) -
 def test_search_requires_a_query(client: TestClient) -> None:
     response = client.post("/search", json={})
 
-    assert response.status_code == 422
+    assert _validation_errors(response) == [("missing", ["body", "query"])]
 
 
 def test_search_with_explicit_sources_forwards_them(client: TestClient) -> None:
@@ -452,13 +499,13 @@ def test_search_with_explicit_empty_document_ids_returns_no_results(
 def test_search_rejects_an_unknown_source(client: TestClient) -> None:
     response = client.post("/search", json={"query": "brown fox", "sources": ["bogus"]})
 
-    assert response.status_code == 422
+    assert _validation_errors(response) == [("enum", ["body", "sources", 0])]
 
 
 def test_search_rejects_an_empty_sources_list(client: TestClient) -> None:
     response = client.post("/search", json={"query": "brown fox", "sources": []})
 
-    assert response.status_code == 422
+    assert _validation_errors(response) == [("too_short", ["body", "sources"])]
 
 
 def test_get_document_returns_a_ready_document(client: TestClient) -> None:
@@ -493,6 +540,8 @@ def test_get_document_404s_for_an_unknown_id(client: TestClient) -> None:
     response = client.get("/documents/999")
 
     assert response.status_code == 404
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {"detail": "Document not found"}
 
 
 def test_delete_document_removes_document_upload_and_chunks(
@@ -504,6 +553,7 @@ def test_delete_document_removes_document_upload_and_chunks(
     response = client.delete(f"/documents/{doc_id}")
 
     assert response.status_code == 204
+    assert response.content == b""
     assert (
         conn.execute(
             "SELECT COUNT(*) FROM documents WHERE id = ?", (doc_id,)
@@ -523,6 +573,8 @@ def test_delete_document_404s_for_an_unknown_id(client: TestClient) -> None:
     response = client.delete("/documents/999")
 
     assert response.status_code == 404
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {"detail": "Document not found"}
 
 
 def test_background_processing_bails_when_shutting_down(
@@ -802,3 +854,422 @@ def test_shutdown_gracefully_warns_when_ingest_outlasts_the_timeout(
         record.levelno == logging.WARNING and "still running" in record.getMessage()
         for record in caplog.records
     )
+
+
+# HTTP contract: status codes, validation-error bodies, content types and response
+# models. These pin behaviour FastAPI/Starlette/Pydantic own, so a framework bump
+# that changes request parsing or serialisation fails here rather than in the SPA.
+
+
+def test_unknown_route_404s_with_a_json_detail(client: TestClient) -> None:
+    response = client.get("/nope")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {"detail": "Not Found"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("post", "/health"),
+        ("put", "/documents"),
+        ("delete", "/documents"),
+        ("post", "/documents/1"),
+        ("put", "/documents/1"),
+        ("get", "/search"),
+    ],
+)
+def test_wrong_method_405s_with_an_allow_header(
+    client: TestClient, method: str, path: str
+) -> None:
+    response = client.request(method, path)
+
+    assert response.status_code == 405
+    assert response.json() == {"detail": "Method Not Allowed"}
+
+
+def test_add_document_with_a_differently_named_multipart_field_422s(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/documents", files={"upload": ("source.pdf", b"x", "application/pdf")}
+    )
+
+    assert _validation_errors(response) == [("missing", ["body", "file"])]
+
+
+def test_add_document_with_a_json_body_422s(client: TestClient) -> None:
+    response = client.post("/documents", json={"file": "source.pdf"})
+
+    assert _validation_errors(response) == [("missing", ["body", "file"])]
+
+
+def test_add_document_with_a_plain_form_field_instead_of_a_file_422s(
+    client: TestClient,
+) -> None:
+    response = client.post("/documents", data={"file": "source.pdf"})
+
+    assert _validation_errors(response) == [("value_error", ["body", "file"])]
+
+
+def test_add_document_with_an_empty_filename_422s(client: TestClient) -> None:
+    # An empty filename makes the multipart parser treat the part as a plain form
+    # field rather than a file, so the 400 branch never sees it.
+    response = client.post("/documents", files={"file": ("", b"x", "application/pdf")})
+
+    assert _validation_errors(response) == [("value_error", ["body", "file"])]
+
+
+def test_add_document_with_a_filename_that_reduces_to_nothing_400s(
+    client: TestClient, conn: sqlite3.Connection
+) -> None:
+    response = client.post("/documents", files={"file": ("/", b"x", "application/pdf")})
+
+    assert response.status_code == 400
+    assert response.headers["content-type"] == "application/json"
+    assert response.json() == {"detail": "An uploaded file is required"}
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("filename", ["noextension", "archive.pdf.zip"])
+def test_add_document_rejects_unsupported_suffixes_with_a_415_detail(
+    client: TestClient, conn: sqlite3.Connection, filename: str
+) -> None:
+    response = client.post(
+        "/documents", files={"file": (filename, b"x", "application/octet-stream")}
+    )
+
+    assert response.status_code == 415
+    assert response.headers["content-type"] == "application/json"
+    detail = response.json()["detail"]
+    assert isinstance(detail, str)
+    assert ".pdf" in detail and ".docx" in detail
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+
+
+def test_add_document_accepts_an_uppercase_suffix(client: TestClient) -> None:
+    response = client.post(
+        "/documents",
+        files={"file": ("SOURCE.PDF", _pdf_bytes(["Hi."]), "application/pdf")},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["filename"] == "SOURCE.PDF"
+
+
+def test_add_document_ignores_the_client_content_type(client: TestClient) -> None:
+    response = client.post(
+        "/documents",
+        files={"file": ("source.pdf", _pdf_bytes(["Hi."]), "text/plain")},
+    )
+
+    assert response.status_code == 202
+    assert client.get(f"/documents/{response.json()['id']}").json()["status"] == "ready"
+
+
+def test_add_document_accepts_an_empty_file_then_fails_it(client: TestClient) -> None:
+    response = client.post(
+        "/documents", files={"file": ("empty.pdf", b"", "application/pdf")}
+    )
+
+    assert response.status_code == 202
+    polled = client.get(f"/documents/{response.json()['id']}").json()
+    assert polled["status"] == "failed"
+    assert polled["error"]
+
+
+def test_add_document_accepts_a_two_megabyte_upload(
+    client: TestClient, tmp_path: Path
+) -> None:
+    # Large enough to be spooled to disk by the multipart parser rather than
+    # held in memory.
+    content = _pdf_bytes(["Hello world."]) + b"\n%" + b"0123456789abcdef" * 131072
+    assert len(content) > 2 * 1024 * 1024
+
+    response = client.post(
+        "/documents", files={"file": ("big.pdf", content, "application/pdf")}
+    )
+
+    assert response.status_code == 202
+    polled = client.get(f"/documents/{response.json()['id']}").json()
+    assert polled["status"] == "ready"
+    (stored,) = (tmp_path / "uploads").iterdir()
+    assert stored.stat().st_size == len(content)
+
+
+def test_add_document_accepts_a_non_ascii_filename(client: TestClient) -> None:
+    response = client.post(
+        "/documents",
+        files={"file": ("résumé 日本.pdf", _pdf_bytes(["Hi."]), "application/pdf")},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["filename"] == "résumé 日本.pdf"
+
+
+def test_polling_reports_pending_then_ready(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with monkeypatch.context() as patch:
+        _stub_background_processing(patch)
+        uploaded = _upload(client, "source.pdf")
+    doc_id = uploaded.json()["id"]
+
+    pending = client.get(f"/documents/{doc_id}")
+
+    assert pending.status_code == 200
+    assert pending.json() == {
+        "id": doc_id,
+        "filename": "source.pdf",
+        "status": "pending",
+        "error": None,
+    }
+    assert [d["status"] for d in client.get("/documents").json()] == ["pending"]
+
+    (stored,) = (tmp_path / "uploads").iterdir()
+    _process_document_in_background(
+        app.dependency_overrides[get_connection_factory](),
+        app.dependency_overrides[get_vector_index](),
+        doc_id,
+        stored,
+    )
+
+    ready = client.get(f"/documents/{doc_id}")
+    assert ready.json() == {
+        "id": doc_id,
+        "filename": "source.pdf",
+        "status": "ready",
+        "error": None,
+    }
+
+
+def test_polling_reports_pending_then_failed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with monkeypatch.context() as patch:
+        _stub_background_processing(patch)
+        uploaded = client.post(
+            "/documents", files={"file": ("bad.pdf", b"not a pdf", "application/pdf")}
+        )
+    doc_id = uploaded.json()["id"]
+    assert client.get(f"/documents/{doc_id}").json()["status"] == "pending"
+
+    (stored,) = (tmp_path / "uploads").iterdir()
+    _process_document_in_background(
+        app.dependency_overrides[get_connection_factory](),
+        app.dependency_overrides[get_vector_index](),
+        doc_id,
+        stored,
+    )
+
+    failed = client.get(f"/documents/{doc_id}").json()
+    assert failed["status"] == "failed"
+    assert isinstance(failed["error"], str) and failed["error"]
+
+
+def test_list_documents_includes_failure_reasons_as_strings(
+    client: TestClient,
+) -> None:
+    _upload(client, "good.pdf")
+    client.post("/documents", files={"file": ("bad.pdf", b"nope", "application/pdf")})
+
+    response = client.get("/documents")
+
+    assert response.headers["content-type"] == "application/json"
+    good, bad = response.json()
+    assert good["error"] is None and good["status"] == "ready"
+    assert bad["status"] == "failed" and isinstance(bad["error"], str)
+    for document in (good, bad):
+        assert set(document) == {"id", "filename", "status", "error"}
+        assert type(document["id"]) is int
+
+
+def test_get_document_404s_for_a_negative_id(client: TestClient) -> None:
+    assert client.get("/documents/-1").status_code == 404
+
+
+@pytest.mark.parametrize("bad_id", ["abc", "1.5", "0x10"])
+def test_get_document_422s_for_a_non_integer_id(
+    client: TestClient, bad_id: str
+) -> None:
+    response = client.get(f"/documents/{bad_id}")
+
+    assert _validation_errors(response) == [("int_parsing", ["path", "document_id"])]
+
+
+@pytest.mark.parametrize("bad_id", ["abc", "1.5"])
+def test_delete_document_422s_for_a_non_integer_id(
+    client: TestClient, bad_id: str
+) -> None:
+    response = client.delete(f"/documents/{bad_id}")
+
+    assert _validation_errors(response) == [("int_parsing", ["path", "document_id"])]
+
+
+def test_delete_document_twice_204s_then_404s(client: TestClient) -> None:
+    doc_id = _upload(client, "source.pdf").json()["id"]
+
+    assert client.delete(f"/documents/{doc_id}").status_code == 204
+    assert client.delete(f"/documents/{doc_id}").status_code == 404
+    assert client.get(f"/documents/{doc_id}").status_code == 404
+    assert client.get("/documents").json() == []
+
+
+def test_delete_document_removes_it_from_search(client: TestClient) -> None:
+    doc_id = _upload(client, "source.pdf", ["The quick brown fox."]).json()["id"]
+    assert client.post("/search", json={"query": "fox"}).json()["results"]
+
+    client.delete(f"/documents/{doc_id}")
+
+    assert client.post("/search", json={"query": "fox"}).json() == {"results": []}
+
+
+def test_search_serialises_a_docx_result_with_a_null_page_number(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/documents",
+        files={
+            "file": (
+                "notes.docx",
+                _docx_bytes(["The quick brown fox."]),
+                "application/octet-stream",
+            )
+        },
+    )
+
+    results = client.post("/search", json={"query": "brown fox"}).json()["results"]
+
+    assert results[0]["page_number"] is None
+
+
+@pytest.mark.parametrize(
+    ("send", "expected"),
+    [
+        (lambda c: c.post("/search"), [("missing", ["body"])]),
+        (
+            lambda c: c.post("/search", json={"query": None}),
+            [("string_type", ["body", "query"])],
+        ),
+        (
+            lambda c: c.post("/search", json={"query": 5}),
+            [("string_type", ["body", "query"])],
+        ),
+        (
+            lambda c: c.post("/search", json={"query": ["a"]}),
+            [("string_type", ["body", "query"])],
+        ),
+        (
+            lambda c: c.post("/search", json=["query"]),
+            [("model_attributes_type", ["body"])],
+        ),
+        (
+            lambda c: c.post("/search", json="query"),
+            [("model_attributes_type", ["body"])],
+        ),
+        (
+            lambda c: c.post("/search", content=b'{"query": "x"}'),
+            [("model_attributes_type", ["body"])],
+        ),
+    ],
+)
+def test_search_422s_for_a_missing_or_malformed_body(
+    client: TestClient,
+    send: Callable[[TestClient], httpx2.Response],
+    expected: list[tuple[str, list[object]]],
+) -> None:
+    assert _validation_errors(send(client)) == expected
+
+
+def test_search_422s_for_invalid_json(client: TestClient) -> None:
+    response = client.post(
+        "/search", content=b"{", headers={"content-type": "application/json"}
+    )
+
+    errors = _validation_errors(response)
+    assert [error_type for error_type, _ in errors] == ["json_invalid"]
+    assert errors[0][1][0] == "body"
+
+
+@pytest.mark.parametrize("sources", [None, "bm25", 3])
+def test_search_422s_for_non_list_sources(client: TestClient, sources: object) -> None:
+    response = client.post("/search", json={"query": "x", "sources": sources})
+
+    assert _validation_errors(response) == [("list_type", ["body", "sources"])]
+
+
+def test_search_422s_for_non_integer_document_ids_naming_the_element(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/search", json={"query": "x", "document_ids": [1, "a", 2.5]}
+    )
+
+    assert _validation_errors(response) == [
+        ("int_parsing", ["body", "document_ids", 1]),
+        ("int_from_float", ["body", "document_ids", 2]),
+    ]
+
+
+def test_search_422s_for_non_list_document_ids(client: TestClient) -> None:
+    response = client.post("/search", json={"query": "x", "document_ids": 3})
+
+    assert _validation_errors(response) == [("list_type", ["body", "document_ids"])]
+
+
+def test_search_with_unknown_document_ids_returns_no_results(
+    client: TestClient,
+) -> None:
+    _upload(client, "source.pdf", ["The quick brown fox."])
+
+    response = client.post("/search", json={"query": "fox", "document_ids": [999]})
+
+    assert response.status_code == 200
+    assert response.json() == {"results": []}
+
+
+def _cors_probe(allowed_origins: str | None) -> list[str]:
+    # Origins are read at import time, so the app must be imported in a fresh
+    # process with the variable set (or removed) to exercise either branch.
+    script = (
+        "from fastapi.testclient import TestClient\n"
+        "from oracle.server.app import app\n"
+        "c = TestClient(app)\n"
+        "o = 'http://localhost:5173'\n"
+        "pre = c.options('/documents', headers={'Origin': o,"
+        " 'Access-Control-Request-Method': 'POST'})\n"
+        "bad = c.options('/documents', headers={'Origin': 'http://evil.example',"
+        " 'Access-Control-Request-Method': 'POST'})\n"
+        "simple = c.get('/health', headers={'Origin': o})\n"
+        "print(pre.status_code, pre.headers.get('access-control-allow-origin'),"
+        " bad.headers.get('access-control-allow-origin'),"
+        " simple.headers.get('access-control-allow-origin'))\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "ORACLE_ALLOWED_ORIGINS"}
+    if allowed_origins is not None:
+        env["ORACLE_ALLOWED_ORIGINS"] = allowed_origins
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.split()
+
+
+def test_cors_headers_are_absent_without_configured_origins() -> None:
+    status, preflight, evil, simple = _cors_probe(None)
+
+    assert status == "405"
+    assert (preflight, evil, simple) == ("None", "None", "None")
+
+
+def test_cors_allows_only_the_configured_origins() -> None:
+    status, preflight, evil, simple = _cors_probe("http://localhost:5173")
+
+    assert status == "200"
+    assert preflight == "http://localhost:5173"
+    assert evil == "None"
+    assert simple == "http://localhost:5173"
