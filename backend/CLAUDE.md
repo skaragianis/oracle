@@ -18,6 +18,7 @@ make backend-test                # full suite (CLI, server, common)
 make cli-test                    # CLI + common only
 make server-test                 # server + common only
 make backend-lint                # ruff check + ruff format --check + ty check
+make backend-embedding-check     # real-model vector check vs golden (downloads model on first run)
 make server-run                  # dev server on 127.0.0.1:8000
 make cli-run ARGS="--help"       # run the CLI
 ```
@@ -44,3 +45,4 @@ Entry points (`oracle-cli`, `oracle-server`) are `[project.scripts]` consoles, e
 - `embeddings.open_vector_index()` downloads the model on first use — the server calls it in the lifespan so that happens at startup. **Tests must never construct a real `TextEmbedding`**: use the `vector_index` fixture in `tests/conftest.py` (a `FakeEmbedder` over in-memory Chroma); CLI tests autouse-patch `open_vector_index`.
 - Tests live in top-level `tests/`, mirroring source module names; server tests use FastAPI's `TestClient` (no live uvicorn). Build backend is `hatchling` with a `src/` layout — the package is importable only after `uv sync`/`uv run`; don't add a competing top-level `oracle/`.
 - **Extraction goldens.** `tests/test_extraction_golden.py` pins what each fixture in `tests/fixtures/extraction/` extracts and chunks to (`*.golden.json`). After an intended change (pymupdf/python-docx/tiktoken bump, chunker edit), run `ORACLE_UPDATE_GOLDENS=1 uv run pytest tests/test_extraction_golden.py` and review the golden diff; a missing golden fails rather than auto-creating. The fixtures are committed bytes — `make_fixtures.py` documents how they were made and is not run by tests.
+- **Embedding goldens.** `tests/test_embedding_stability.py` loads the real model and pins its vectors (`tests/fixtures/embeddings/*.golden.json`) so a fastembed/model update that changes output is caught — documents ingested earlier would otherwise silently search worse and need re-adding after merge. Run it with `make backend-embedding-check` (CI: `embedding-ci.yml`); after an intended change regenerate with `ORACLE_UPDATE_GOLDENS=1 make backend-embedding-check`. It is deselected via `addopts = "-m 'not embedding_model'"`, so passing your own `-m` replaces that deselection and brings this real-model test back into the run.

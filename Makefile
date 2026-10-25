@@ -5,7 +5,7 @@ PORT := 8080
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-audit frontend-run frontend-test frontend-e2e frontend-lint frontend-audit test lint audit
+.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit frontend-run frontend-test frontend-e2e frontend-lint frontend-audit test lint audit
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  make %-16s %s\n", $$1, $$2}'
@@ -46,6 +46,9 @@ backend-test: ## Run the full backend test suite (CLI, server, common)
 
 backend-lint: ## Lint, format-check and typecheck the backend (ruff + ty)
 	cd backend && uv run ruff check && uv run ruff format --check && uv run ty check
+
+backend-embedding-check: ## Check the real embedding model still matches its golden vectors (downloads ~130MB on first run)
+	cd backend && uv run pytest -m embedding_model tests/test_embedding_stability.py
 
 backend-audit: ## Check backend dependencies for known vulnerabilities (uv audit)
 	cd backend && uv audit

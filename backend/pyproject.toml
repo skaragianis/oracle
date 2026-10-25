@@ -26,6 +26,10 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "embedding_model: loads the real embedding model (run via make backend-embedding-check)",
+]
+addopts = "-m 'not embedding_model'"
 
 [tool.ruff.lint]
 select = [
