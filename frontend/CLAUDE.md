@@ -13,6 +13,8 @@ make setup            # install deps (also backend + Playwright browsers)
 make frontend-run     # Vite on 127.0.0.1:5173 (already passes --host for LAN)
 make frontend-test    # full Vitest suite
 make frontend-e2e     # Playwright (starts its own backend + Vite)
+make frontend-visual  # screenshot check, in the Playwright docker container (no backend)
+make frontend-visual-update  # regenerate the baselines after an intended UI change
 make frontend-lint    # vue-tsc — the real typecheck
 ```
 
@@ -34,7 +36,12 @@ pnpm test tests/api.test.ts  # single file (no `--`)
 ## Testing tiers
 
 - **Vitest** (`tests/`, jsdom, `fetch` mocked) is the fast tier for component rendering and API-client logic — put new logic here. Component tests mount with the PrimeVue plugin and assert against rendered markup (`.p-card`, `input.p-checkbox-input`). `tsconfig.app.json` typechecks `tests/` too — keep it that way.
-- **Playwright** (`e2e/`, real Chromium) covers only the upload→poll→settle flow, because **jsdom's `File` isn't serializable by a real multipart POST** (an upload from jsdom reaches the backend as `422 field required`). It starts its own uvicorn + Vite against a throwaway db.
+- **Playwright** (`e2e/*.spec.ts`, real Chromium) covers only the upload→poll→settle flow, because **jsdom's `File` isn't serializable by a real multipart POST** (an upload from jsdom reaches the backend as `422 field required`). It starts its own uvicorn + Vite against a throwaway db.
+- **Visual** (`e2e/visual/`, `playwright.visual.config.ts`) is `toHaveScreenshot` over the main screens (empty library, mixed ready/pending/failed rows, search results light and dark, API error) with the whole API mocked via `page.route` and Google Fonts blocked, so it needs only Vite. It exists because a component-library major (PrimeVue, primeicons) passes Vitest/vue-tsc/e2e while changing styling or icons. The default config ignores it (`testIgnore`); it is not part of `make test`; CI runs it as the `visual` job in `e2e-ci.yml`.
+  - **Run it only through `make frontend-visual`.** Baselines (`e2e/visual/__screenshots__/`) are rendered in `mcr.microsoft.com/playwright:v<version>-noble`, the tag derived from the installed `@playwright/test`, because font rasterisation differs per OS and a host run would never match. The container runs as your uid with the repo bind-mounted, so baselines and `test-results/` stay yours.
+  - **A failure is either a regression or an intended change.** Read the diff (`frontend/test-results/`, or the CI artifact); if intended, run `make frontend-visual-update` and commit the changed PNGs with the change. Review dependency-bump PRs the same way: a visual diff there is the signal, not noise to re-baseline. Add a screen by adding a test; keep fixtures typed with the `src/api.ts` interfaces.
+  - After a Playwright bump the image tag changes and baselines may shift by a few pixels: update and review them in that PR.
+  - Specs are typechecked by `tsconfig.app.json` (they import app types), the config by `tsconfig.node.json`.
 
 Playwright gotchas (all in `playwright.config.ts`):
 - The e2e **database is emptied inside the `webServer` command**, not in the config body or a `globalSetup` — Playwright re-imports the config per worker and starts `webServer` before `globalSetup`, so either would delete the db out from under a migrated server (`no such table: documents`).
