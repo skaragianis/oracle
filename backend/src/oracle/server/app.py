@@ -244,7 +244,7 @@ def _add_document(
     file: UploadFile,
 ) -> UploadResponse:
     filename = Path(file.filename or "").name
-    if not filename:
+    if filename in {"", ".", ".."}:
         raise HTTPException(status_code=400, detail="An uploaded file is required")
 
     with tempfile.TemporaryDirectory() as staging_dir:
