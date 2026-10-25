@@ -5,7 +5,7 @@ PORT := 8080
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint frontend-run frontend-test frontend-e2e frontend-lint test lint
+.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-audit frontend-run frontend-test frontend-e2e frontend-lint frontend-audit test lint audit
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  make %-16s %s\n", $$1, $$2}'
@@ -47,6 +47,9 @@ backend-test: ## Run the full backend test suite (CLI, server, common)
 backend-lint: ## Lint and typecheck the backend (ruff + ty)
 	cd backend && uv run ruff check && uv run ty check
 
+backend-audit: ## Check backend dependencies for known vulnerabilities (uv audit)
+	cd backend && uv audit
+
 frontend-run: ## Run the Vite dev server on 127.0.0.1:5173 (needs server-run)
 	cd frontend && pnpm dev --host
 
@@ -59,6 +62,11 @@ frontend-e2e: ## Run the frontend end-to-end tests (Playwright)
 frontend-lint: ## Typecheck the frontend (vue-tsc)
 	cd frontend && pnpm typecheck
 
+frontend-audit: ## Check frontend dependencies for known vulnerabilities (pnpm audit)
+	cd frontend && pnpm audit
+
 test: backend-test frontend-test ## Run all test suites
 
 lint: backend-lint frontend-lint ## Lint and typecheck the whole project
+
+audit: backend-audit frontend-audit ## Check all dependencies for known vulnerabilities

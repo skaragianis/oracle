@@ -26,4 +26,8 @@ backend/data/
 .vscode/
 .idea/
 
+# Lsty
+todo.txt
+done.txt
+
 .DS_Store
