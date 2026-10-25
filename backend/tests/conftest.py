@@ -1,12 +1,16 @@
+import sqlite3
 import uuid
 import zlib
 from collections.abc import Iterable, Iterator
+from contextlib import closing
+from pathlib import Path
 from typing import cast
 
 import chromadb
 import chromadb.api.client
 import pytest
 
+from oracle.common.db import apply_migrations
 from oracle.common.embeddings import VectorIndex
 
 FAKE_DIMENSIONS = 16
@@ -47,3 +51,10 @@ def make_vector_index() -> VectorIndex:
 @pytest.fixture
 def vector_index() -> VectorIndex:
     return make_vector_index()
+
+
+@pytest.fixture
+def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
+    with closing(sqlite3.connect(tmp_path / "test.db")) as connection:
+        apply_migrations(connection)
+        yield connection

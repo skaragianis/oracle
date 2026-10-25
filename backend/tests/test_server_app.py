@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
@@ -49,10 +50,9 @@ def conn(db_path: Path) -> Iterator[sqlite3.Connection]:
     # check_same_thread=False because one connection is shared across the whole
     # test while endpoints run on TestClient's threadpool. The app itself opens a
     # connection per request, on the thread that uses it, so it doesn't need this.
-    connection = sqlite3.connect(db_path, check_same_thread=False)
-    apply_migrations(connection)
-    yield connection
-    connection.close()
+    with closing(sqlite3.connect(db_path, check_same_thread=False)) as connection:
+        apply_migrations(connection)
+        yield connection
 
 
 @pytest.fixture

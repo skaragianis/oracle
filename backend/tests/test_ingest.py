@@ -4,7 +4,7 @@ import sqlite3
 import subprocess
 import sys
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 import docx
@@ -12,7 +12,6 @@ import pymupdf
 import pytest
 import tiktoken
 
-from oracle.common.db import apply_migrations
 from oracle.common.embeddings import ChunkToIndex, VectorIndex
 from oracle.common.ingest import (
     CHUNK_ENCODING_NAME,
@@ -24,14 +23,6 @@ from oracle.common.ingest import (
     process_document,
     stage_file,
 )
-
-
-@pytest.fixture
-def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
-    connection = sqlite3.connect(tmp_path / "test.db")
-    apply_migrations(connection)
-    yield connection
-    connection.close()
 
 
 def _write_pdf(

@@ -1,10 +1,7 @@
 import sqlite3
-from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 
-from oracle.common.db import apply_migrations
 from oracle.common.documents import (
     SQLITE_INT_MAX,
     SQLITE_INT_MIN,
@@ -15,14 +12,6 @@ from oracle.common.documents import (
     mark_document_failed,
     mark_document_ready,
 )
-
-
-@pytest.fixture
-def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
-    connection = sqlite3.connect(tmp_path / "test.db")
-    apply_migrations(connection)
-    yield connection
-    connection.close()
 
 
 def test_create_document_inserts_row_with_defaults(conn: sqlite3.Connection) -> None:
