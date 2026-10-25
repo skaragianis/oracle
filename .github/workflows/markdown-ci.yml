@@ -1,0 +1,29 @@
+name: Markdown CI
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - '**/*.md'
+      - '.markdownlint-cli2.yaml'
+      - 'Makefile'
+      - '.github/workflows/markdown-ci.yml'
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.markdownlint-cli2.yaml'
+      - 'Makefile'
+      - '.github/workflows/markdown-ci.yml'
+
+jobs:
+  markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Lint markdown
+        run: make lint-md
