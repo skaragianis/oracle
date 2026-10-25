@@ -2,7 +2,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-import fitz
+import pymupdf
 import pytest
 from conftest import make_vector_index
 
@@ -50,7 +50,7 @@ def test_main_add_ingests_file_and_records_document(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "report.pdf"
-    pdf_doc = fitz.open()
+    pdf_doc = pymupdf.open()
     pdf_doc.new_page().insert_text((72, 72), "Hello world.")
     pdf_doc.save(source)
     pdf_doc.close()
@@ -90,7 +90,7 @@ def test_main_add_twice_prints_re_added_and_keeps_one_document(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "report.pdf"
-    pdf_doc = fitz.open()
+    pdf_doc = pymupdf.open()
     pdf_doc.new_page().insert_text((72, 72), "Hello world.")
     pdf_doc.save(source)
     pdf_doc.close()
@@ -187,7 +187,7 @@ def test_main_list_prints_documents_with_emphasised_id(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "report.pdf"
-    pdf_doc = fitz.open()
+    pdf_doc = pymupdf.open()
     pdf_doc.new_page().insert_text((72, 72), "Hello world.")
     pdf_doc.save(source)
     pdf_doc.close()
@@ -221,7 +221,7 @@ def test_main_search_prints_matching_document_and_chunk(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "report.pdf"
-    pdf_doc = fitz.open()
+    pdf_doc = pymupdf.open()
     pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
     pdf_doc.save(source)
     pdf_doc.close()
@@ -294,7 +294,7 @@ def test_main_search_with_bm25_only_omits_vector_only_results(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "report.pdf"
-    pdf_doc = fitz.open()
+    pdf_doc = pymupdf.open()
     pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
     pdf_doc.save(source)
     pdf_doc.close()
@@ -316,7 +316,7 @@ def test_main_search_with_bm25_only_and_no_keyword_match_prints_no_results(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "report.pdf"
-    pdf_doc = fitz.open()
+    pdf_doc = pymupdf.open()
     pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
     pdf_doc.save(source)
     pdf_doc.close()
@@ -370,7 +370,7 @@ def test_main_search_without_documents_flag_excludes_non_ready_documents(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "report.pdf"
-    pdf_doc = fitz.open()
+    pdf_doc = pymupdf.open()
     pdf_doc.new_page().insert_text((72, 72), "The quick brown fox.")
     pdf_doc.save(source)
     pdf_doc.close()
@@ -407,7 +407,7 @@ def test_main_delete_removes_upload_document_and_chunks(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "report.pdf"
-    pdf_doc = fitz.open()
+    pdf_doc = pymupdf.open()
     pdf_doc.new_page().insert_text((72, 72), "Hello world.")
     pdf_doc.save(source)
     pdf_doc.close()

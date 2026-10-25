@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import docx
-import fitz
+import pymupdf
 import pytest
 import tiktoken
 
@@ -36,7 +36,7 @@ def _write_pdf(
     path: Path, pages_of_paragraphs: list[list[str]], page_height: int = 842
 ) -> None:
     """pages_of_paragraphs: list of pages, each a list of paragraph strings."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     for paragraphs in pages_of_paragraphs:
         page = doc.new_page(width=612, height=page_height)
         y = 72
@@ -52,7 +52,7 @@ def _write_pdf_with_corrupt_page(
 ) -> None:
     """Append junk operators to one page's content stream, as some PDF
     producers emit. MuPDF recovers and still extracts the page's text."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     for text in pages:
         page = doc.new_page(width=612, height=842)
         page.insert_text((72, 72), text)
@@ -624,7 +624,7 @@ def test_chunk_document_returns_zero_for_blank_pdf(
     tmp_path: Path, conn: sqlite3.Connection
 ) -> None:
     source = tmp_path / "blank.pdf"
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.new_page()
     doc.save(source)
     doc.close()

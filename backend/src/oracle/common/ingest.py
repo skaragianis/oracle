@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import docx
-import fitz
+import pymupdf
 import tiktoken
 from docx.table import Table
 from docx.text.paragraph import Paragraph
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # MuPDF's C layer writes parser complaints straight to stderr, bypassing logging
 # and arriving with no document or page attached. Route them through
 # _drain_mupdf_warnings instead, which is the only reader of that buffer.
-fitz.TOOLS.mupdf_display_errors(False)
+pymupdf.TOOLS.mupdf_display_errors(False)
 
 SUPPORTED_SUFFIXES = {".pdf", ".docx"}
 
@@ -281,7 +281,7 @@ def _split_into_paragraphs(block_text: str) -> list[str]:
 
 
 def _drain_mupdf_warnings(doc_id: int, page_number: int | None = None) -> None:
-    messages = fitz.TOOLS.mupdf_warnings()
+    messages = pymupdf.TOOLS.mupdf_warnings()
     if not messages:
         return
     location = f"doc {doc_id}"
@@ -295,7 +295,7 @@ def _drain_mupdf_warnings(doc_id: int, page_number: int | None = None) -> None:
 
 def _iter_pdf_lines(pdf_path: Path, doc_id: int) -> Iterator[LineSegment]:
     paragraph_index = -1
-    with fitz.open(pdf_path) as doc:
+    with pymupdf.open(pdf_path) as doc:
         _drain_mupdf_warnings(doc_id)
         for page_number, page in enumerate(doc, start=1):
             blocks = page.get_text("blocks")

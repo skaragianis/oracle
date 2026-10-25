@@ -8,8 +8,8 @@ from pathlib import Path
 from unittest import mock
 
 import docx
-import fitz
 import httpx2
+import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
@@ -77,7 +77,7 @@ def _reset_shutting_down() -> Iterator[None]:
 
 
 def _pdf_bytes(paragraphs: Iterable[str]) -> bytes:
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=842)
     y = 72
     for paragraph in paragraphs:
