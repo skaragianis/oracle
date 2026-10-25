@@ -1,3 +1,4 @@
+import errno
 import io
 import logging
 import os
@@ -18,9 +19,11 @@ from fastapi.testclient import TestClient
 
 from oracle.common import db, documents, ingest
 from oracle.common.db import apply_migrations
+from oracle.common.documents import SQLITE_INT_MAX, SQLITE_INT_MIN
 from oracle.common.embeddings import VectorIndex
 from oracle.server import app as app_module
 from oracle.server.app import (
+    MAX_FILENAME_BYTES,
     _ingest_slot,
     _process_document_in_background,
     _reprocess_pending_in_background,
@@ -949,7 +952,7 @@ def test_add_document_with_a_dot_filename_400s(
 
 
 @pytest.mark.parametrize("filename", ["x" * 300 + ".pdf", "é" * 130 + ".pdf"])
-def test_add_document_with_a_filename_over_255_bytes_400s(
+def test_add_document_with_a_filename_over_the_max_bytes_400s(
     client: TestClient, conn: sqlite3.Connection, tmp_path: Path, filename: str
 ) -> None:
     response = client.post(
@@ -957,7 +960,9 @@ def test_add_document_with_a_filename_over_255_bytes_400s(
     )
 
     assert response.status_code == 400
-    assert response.json() == {"detail": "Filename is too long (max 255 bytes)"}
+    assert response.json() == {
+        "detail": f"Filename is too long (max {MAX_FILENAME_BYTES} bytes)"
+    }
     assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
     assert not (tmp_path / "uploads").exists() or not any(
         (tmp_path / "uploads").iterdir()
@@ -989,11 +994,17 @@ def test_add_document_with_a_nul_in_the_filename_400s(
     )
 
 
-@pytest.mark.parametrize("filename", ["x" * 251 + ".pdf", "é" * 125 + "x.pdf"])
-def test_add_document_accepts_a_filename_of_exactly_255_bytes(
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "x" * (MAX_FILENAME_BYTES - 4) + ".pdf",
+        "é" * ((MAX_FILENAME_BYTES - 5) // 2) + "x.pdf",
+    ],
+)
+def test_add_document_accepts_a_filename_of_exactly_the_max_bytes(
     client: TestClient, filename: str
 ) -> None:
-    assert len(filename.encode()) == 255
+    assert len(filename.encode()) == MAX_FILENAME_BYTES
 
     response = client.post(
         "/documents",
@@ -1002,6 +1013,20 @@ def test_add_document_accepts_a_filename_of_exactly_255_bytes(
 
     assert response.status_code == 202
     assert response.json()["filename"] == filename
+
+
+def test_max_filename_bytes_is_255() -> None:
+    assert MAX_FILENAME_BYTES == 255
+
+
+def test_max_filename_bytes_is_the_filesystem_name_limit(tmp_path: Path) -> None:
+    (tmp_path / ("x" * MAX_FILENAME_BYTES)).touch()
+
+    with pytest.raises(OSError) as too_long:
+        (tmp_path / ("x" * (MAX_FILENAME_BYTES + 1))).touch()
+
+    assert too_long.value.errno == errno.ENAMETOOLONG
+    assert os.pathconf(tmp_path, "PC_NAME_MAX") == MAX_FILENAME_BYTES
 
 
 @pytest.mark.parametrize("filename", ["noextension", "archive.pdf.zip"])
@@ -1161,9 +1186,7 @@ def test_get_document_404s_for_a_negative_id(client: TestClient) -> None:
     assert client.get("/documents/-1").status_code == 404
 
 
-SQLITE_INT_MAX = 2**63 - 1
-SQLITE_INT_MIN = -(2**63)
-OUT_OF_RANGE_IDS = [2**63, 10**30, SQLITE_INT_MIN - 1]
+OUT_OF_RANGE_IDS = [SQLITE_INT_MAX + 1, 10**30, SQLITE_INT_MIN - 1]
 
 
 @pytest.mark.parametrize("doc_id", OUT_OF_RANGE_IDS)

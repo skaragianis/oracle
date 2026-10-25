@@ -6,6 +6,8 @@ import pytest
 
 from oracle.common.db import apply_migrations
 from oracle.common.documents import (
+    SQLITE_INT_MAX,
+    SQLITE_INT_MIN,
     Document,
     create_document,
     delete_document,
@@ -136,3 +138,15 @@ def test_document_ids_are_not_reused_after_deleting_the_only_document(
     )
 
     assert second_id != first_id
+
+
+def test_sqlite_int_bounds_are_the_real_sqlite_integer_bounds() -> None:
+    connection = sqlite3.connect(":memory:")
+    try:
+        for bound in (SQLITE_INT_MIN, SQLITE_INT_MAX):
+            assert connection.execute("SELECT ?", (bound,)).fetchone() == (bound,)
+        for beyond in (SQLITE_INT_MAX + 1, SQLITE_INT_MIN - 1):
+            with pytest.raises(OverflowError):
+                connection.execute("SELECT ?", (beyond,))
+    finally:
+        connection.close()

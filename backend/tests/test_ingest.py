@@ -16,6 +16,7 @@ from oracle.common.db import apply_migrations
 from oracle.common.embeddings import ChunkToIndex, VectorIndex
 from oracle.common.ingest import (
     CHUNK_ENCODING_NAME,
+    CHUNK_TARGET_TOKENS,
     UnsupportedFileTypeError,
     _split_into_paragraphs,
     chunk_document,
@@ -372,7 +373,7 @@ def test_chunk_document_splits_long_docx_into_multiple_chunks(
         char_end,
     ) in rows:
         token_count = len(encoding.encode(text))
-        assert token_count >= 800 or seq == chunk_count - 1
+        assert token_count >= CHUNK_TARGET_TOKENS or seq == chunk_count - 1
         assert page_number is None
         assert paragraph_start <= paragraph_end
         assert char_start < char_end
@@ -543,7 +544,7 @@ def test_chunk_document_splits_long_pdf_into_multiple_chunks(
         char_end,
     ) in rows:
         token_count = len(encoding.encode(text))
-        assert token_count >= 800 or seq == chunk_count - 1
+        assert token_count >= CHUNK_TARGET_TOKENS or seq == chunk_count - 1
         assert page_number >= 1
         assert paragraph_start <= paragraph_end
         assert char_start < char_end
