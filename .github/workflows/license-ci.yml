@@ -1,0 +1,50 @@
+name: License CI
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - 'backend/uv.lock'
+      - 'frontend/pnpm-lock.yaml'
+      - 'scripts/check_licenses.py'
+      - 'Makefile'
+      - '.github/workflows/license-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/uv.lock'
+      - 'frontend/pnpm-lock.yaml'
+      - 'scripts/check_licenses.py'
+      - 'Makefile'
+      - '.github/workflows/license-ci.yml'
+
+jobs:
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install backend dependencies
+        run: uv sync
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Check dependency licenses
+        run: make licenses
