@@ -29,6 +29,19 @@ ALLOWED = {
     "CC0-1.0",
     "BlueOak-1.0.0",
     "CNRI-Python",
+    "Unlicense",
+    # The GPL family is allowed because Oracle is local and single-user (and already
+    # ships AGPL-3.0 pymupdf).
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+    "LGPL-2.1-only",
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
 }
 
 # Free-text license names (lowercase) seen in package metadata -> SPDX id.
@@ -43,15 +56,23 @@ ALIASES = {
     "isc license (iscl)": "ISC",
     "mozilla public license 2.0 (mpl 2.0)": "MPL-2.0",
     "python software foundation license": "PSF-2.0",
+    "the unlicense (unlicense)": "Unlicense",
+    "gnu general public license v2 (gplv2)": "GPL-2.0-only",
+    "gnu general public license v2 or later (gplv2+)": "GPL-2.0-or-later",
+    "gnu general public license v3 (gplv3)": "GPL-3.0-only",
+    "gnu general public license v3 or later (gplv3+)": "GPL-3.0-or-later",
+    "gnu lesser general public license v2 (lgplv2)": "LGPL-2.1-only",
+    "gnu lesser general public license v2 or later (lgplv2+)": "LGPL-2.1-or-later",
+    "gnu lesser general public license v3 (lgplv3)": "LGPL-3.0-only",
+    "gnu lesser general public license v3 or later (lgplv3+)": "LGPL-3.0-or-later",
+    "gnu affero general public license v3": "AGPL-3.0-only",
+    "gnu affero general public license v3 or later (agplv3+)": "AGPL-3.0-or-later",
+    # pymupdf's own free-text string (an AGPL-3.0 / Artifex commercial dual license)
+    "dual licensed - gnu affero gpl 3.0 or artifex commercial license": "AGPL-3.0-only",
 }
 
 # (package, reported license) -> why it is accepted. Matching the reported string
 # too means a real relicense (a changed string) fails instead of passing silently.
-_PYMUPDF = "Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License"
-_PYMUPDF_NOTE = (
-    "AGPL-3.0 (or Artifex commercial); accepted because Oracle is local, single-user "
-    "and not offered as a network service"
-)
 _SHIM_NOTE = (
     "empty shim shipped with pymupdf 2.x, no license metadata; AGPL-3.0 like pymupdf"
 )
@@ -85,7 +106,6 @@ _TIKTOKEN_MIT = (
 )
 EXCEPTIONS = {
     ("tiktoken", _TIKTOKEN_MIT): _TIKTOKEN_NOTE,
-    ("pymupdf", _PYMUPDF): _PYMUPDF_NOTE,
     ("pymupdf4llm", "UNKNOWN"): _SHIM_NOTE,
     ("pymupdf_layout", "UNKNOWN"): _SHIM_NOTE,
     ("py_rust_stemmers", "UNKNOWN"): _STEMMER_NOTE,
@@ -159,12 +179,39 @@ SELF_TEST = [
     ("MIT WITH Classpath-exception-2.0", False),
     ("mit", False),
     ("UNKNOWN", False),
-    ("MIT\nGPL-3.0", False),
-    ("MIT OR GPL-3.0-only", True),
-    ("MIT OR GPL-3.0-only AND LGPL-3.0-only", True),
-    ("MIT AND GPL-3.0-only", False),
+    ("MIT\nSSPL-1.0", False),
+    ("MIT OR SSPL-1.0", True),
+    ("MIT OR SSPL-1.0 AND BUSL-1.1", True),
+    ("MIT AND SSPL-1.0", False),
     ("Apache Software License; BSD License", True),
-    ("Apache Software License; GPL-3.0-only", False),
+    ("Apache Software License; BUSL-1.1", False),
+    ("Acme Proprietary EULA", False),
+    ("SSPL-1.0", False),
+    ("BUSL-1.1", False),
+    ("Unlicense", True),
+    ("GPL-2.0-only", True),
+    ("GPL-2.0-or-later", True),
+    ("GPL-3.0-only", True),
+    ("GPL-3.0-or-later", True),
+    ("LGPL-2.1-only", True),
+    ("LGPL-2.1-or-later", True),
+    ("LGPL-3.0-only", True),
+    ("LGPL-3.0-or-later", True),
+    ("AGPL-3.0-only", True),
+    ("AGPL-3.0-or-later", True),
+    ("MIT AND GPL-3.0-only", True),
+    ("GNU General Public License v2 (GPLv2)", True),
+    ("GNU General Public License v2 or later (GPLv2+)", True),
+    ("GNU General Public License v3 (GPLv3)", True),
+    ("GNU General Public License v3 or later (GPLv3+)", True),
+    ("GNU Lesser General Public License v2 (LGPLv2)", True),
+    ("GNU Lesser General Public License v2 or later (LGPLv2+)", True),
+    ("GNU Lesser General Public License v3 (LGPLv3)", True),
+    ("GNU Lesser General Public License v3 or later (LGPLv3+)", True),
+    ("GNU Affero General Public License v3", True),
+    ("GNU Affero General Public License v3 or later (AGPLv3+)", True),
+    ("The Unlicense (Unlicense)", True),
+    ("Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License", True),
     ("Mozilla Public License 2.0 (MPL 2.0)", True),
 ]
 
