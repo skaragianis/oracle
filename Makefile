@@ -10,7 +10,7 @@ SMOKE_MODELS := oracle-smoke-models
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit backend-licenses frontend-run frontend-test frontend-e2e frontend-visual frontend-visual-update frontend-lint frontend-audit frontend-licenses docker-smoke-build docker-smoke-run docker-smoke test lint audit licenses
+.PHONY: help setup up down logs cli-run cli-test server-run server-test backend-test backend-lint backend-embedding-check backend-audit backend-licenses frontend-run frontend-test frontend-e2e frontend-visual frontend-visual-update frontend-lint frontend-audit frontend-licenses docker-smoke-build docker-smoke-run docker-smoke test lint lint-md audit licenses
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  make %-16s %s\n", $$1, $$2}'
@@ -95,7 +95,10 @@ frontend-licenses: ## Check frontend dependency licenses against the allowlist (
 
 test: backend-test frontend-test ## Run all test suites
 
-lint: backend-lint frontend-lint ## Lint and typecheck the whole project
+lint: backend-lint frontend-lint lint-md ## Lint and typecheck the whole project
+
+lint-md: ## Lint every markdown file, untracked ones included (markdownlint-cli2)
+	npx --yes --prefer-offline markdownlint-cli2@0.24.0 '**/*.md'
 
 audit: backend-audit frontend-audit ## Check all dependencies for known vulnerabilities
 

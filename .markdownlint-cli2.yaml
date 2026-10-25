@@ -1,0 +1,35 @@
+# Mirrors the editor-wide config (~/.config/markdownlint/config.yaml), which
+# nvim-lint swaps for this file inside the repo, so editor and `make lint-md`
+# agree. Rules are tuned to prettier, which formats markdown on save.
+# `make lint-md` globs the checkout rather than git ls-files, so untracked and
+# locally excluded files (.claude/) are linted too. The glob lives in the
+# Makefile, not here, so editor runs lint only the open buffer.
+ignores:
+  - '**/.claude/worktrees'
+  - '**/node_modules'
+  - '**/.venv'
+  - '**/.pytest_cache'
+  - '**/dist'
+  - '**/test-results'
+  - '**/playwright-report'
+
+config:
+  # prettier does not wrap prose, so long lines are expected.
+  MD013: false
+  # prettier indents nested lists to the parent marker width, not a fixed 2.
+  MD007: false
+  # prettier renumbers ordered lists itself.
+  MD029: false
+  MD004:
+    style: dash
+  MD049:
+    style: underscore
+  MD050:
+    style: asterisk
+  MD048:
+    style: backtick
+  MD046:
+    style: fenced
+  # Agent and skill files open with name:/description: frontmatter, not an H1.
+  MD041:
+    front_matter_title: '^\s*(name|title)\s*[:=]'
