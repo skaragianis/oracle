@@ -948,6 +948,62 @@ def test_add_document_with_a_dot_filename_400s(
     )
 
 
+@pytest.mark.parametrize("filename", ["x" * 300 + ".pdf", "é" * 130 + ".pdf"])
+def test_add_document_with_a_filename_over_255_bytes_400s(
+    client: TestClient, conn: sqlite3.Connection, tmp_path: Path, filename: str
+) -> None:
+    response = client.post(
+        "/documents", files={"file": (filename, b"x", "application/pdf")}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Filename is too long (max 255 bytes)"}
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+    assert not (tmp_path / "uploads").exists() or not any(
+        (tmp_path / "uploads").iterdir()
+    )
+
+
+def test_add_document_with_a_nul_in_the_filename_400s(
+    client: TestClient, conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    boundary = "oracleboundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="a\x00b.pdf"\r\n'
+        "Content-Type: application/pdf\r\n\r\nx\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+
+    response = client.post(
+        "/documents",
+        content=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Filename contains a NUL byte"}
+    assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+    assert not (tmp_path / "uploads").exists() or not any(
+        (tmp_path / "uploads").iterdir()
+    )
+
+
+@pytest.mark.parametrize("filename", ["x" * 251 + ".pdf", "é" * 125 + "x.pdf"])
+def test_add_document_accepts_a_filename_of_exactly_255_bytes(
+    client: TestClient, filename: str
+) -> None:
+    assert len(filename.encode()) == 255
+
+    response = client.post(
+        "/documents",
+        files={"file": (filename, _pdf_bytes(["Hi."]), "application/pdf")},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["filename"] == filename
+
+
 @pytest.mark.parametrize("filename", ["noextension", "archive.pdf.zip"])
 def test_add_document_rejects_unsupported_suffixes_with_a_415_detail(
     client: TestClient, conn: sqlite3.Connection, filename: str

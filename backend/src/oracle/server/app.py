@@ -20,6 +20,7 @@ from oracle.common.search import SearchSource
 logger = logging.getLogger(__name__)
 
 SHUTDOWN_INGEST_TIMEOUT_SECONDS = 10
+MAX_FILENAME_BYTES = 255
 
 
 def allowed_origins() -> list[str]:
@@ -246,6 +247,13 @@ def _add_document(
     filename = Path(file.filename or "").name
     if filename in {"", ".", ".."}:
         raise HTTPException(status_code=400, detail="An uploaded file is required")
+    if "\x00" in filename:
+        raise HTTPException(status_code=400, detail="Filename contains a NUL byte")
+    if len(filename.encode()) > MAX_FILENAME_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Filename is too long (max {MAX_FILENAME_BYTES} bytes)",
+        )
 
     with tempfile.TemporaryDirectory() as staging_dir:
         staged_path = Path(staging_dir) / filename
