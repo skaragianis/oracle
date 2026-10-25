@@ -43,6 +43,11 @@ select = [
 [tool.ty.rules]
 all = "error"
 
+[tool.uv.audit]
+# chromadb advisories in Chroma's HTTP server, unreachable via the embedded PersistentClient;
+# IDs also cover their GHSA aliases.
+ignore-until-fixed = ["PYSEC-2026-311", "PYSEC-2026-3813", "PYSEC-2026-3814", "PYSEC-2026-3815"]
+
 [dependency-groups]
 dev = [
     "httpx2>=2.16.0",

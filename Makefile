@@ -63,8 +63,8 @@ backend-lint: ## Lint, format-check and typecheck the backend and scripts/ (ruff
 backend-embedding-check: ## Check the real embedding model still matches its golden vectors (downloads ~130MB on first run)
 	cd backend && uv run pytest -m embedding_model tests/test_embedding_stability.py
 
-backend-audit: ## Check backend dependencies for known vulnerabilities (uv audit)
-	cd backend && uv audit
+backend-audit: ## Check backend dependencies for known vulnerabilities (uv audit; ignores in pyproject.toml)
+	cd backend && uv audit --locked
 
 backend-licenses: ## Check backend dependency licenses against the allowlist (needs make setup)
 	python3 scripts/check_licenses.py backend
