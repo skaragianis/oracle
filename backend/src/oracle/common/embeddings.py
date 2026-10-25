@@ -104,10 +104,7 @@ class VectorIndex:
         ]
 
 
-def open_vector_index(
-    vector_db_path: Path = DEFAULT_VECTOR_DB_PATH,
-    model_cache_dir: Path = DEFAULT_MODEL_CACHE_DIR,
-) -> VectorIndex:
+def load_embedder(model_cache_dir: Path = DEFAULT_MODEL_CACHE_DIR) -> Embedder:
     """Downloads the embedding model on first use — call at startup, not per request."""
     from fastembed import TextEmbedding
 
@@ -118,7 +115,15 @@ def open_vector_index(
         EMBEDDING_MODEL_NAME,
         model_cache_dir,
     )
-    embedder = TextEmbedding(EMBEDDING_MODEL_NAME, cache_dir=str(model_cache_dir))
+    return TextEmbedding(EMBEDDING_MODEL_NAME, cache_dir=str(model_cache_dir))
+
+
+def open_vector_index(
+    vector_db_path: Path = DEFAULT_VECTOR_DB_PATH,
+    model_cache_dir: Path = DEFAULT_MODEL_CACHE_DIR,
+) -> VectorIndex:
+    """Downloads the embedding model on first use — call at startup, not per request."""
+    embedder = load_embedder(model_cache_dir)
     # PersistentClient is annotated as returning the abstract ClientAPI, but it
     # always constructs a concrete Client, which is what actually has .close().
     client = cast(
