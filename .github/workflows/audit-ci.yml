@@ -1,0 +1,59 @@
+name: Audit CI
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - 'backend/uv.lock'
+      - 'backend/pyproject.toml'
+      - 'frontend/pnpm-lock.yaml'
+      - 'frontend/package.json'
+      - 'Makefile'
+      - '.github/workflows/audit-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/uv.lock'
+      - 'backend/pyproject.toml'
+      - 'frontend/pnpm-lock.yaml'
+      - 'frontend/package.json'
+      - 'Makefile'
+      - '.github/workflows/audit-ci.yml'
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Audit backend dependencies
+        run: make backend-audit
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Audit frontend dependencies
+        run: make frontend-audit
