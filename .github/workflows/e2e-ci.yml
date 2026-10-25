@@ -46,6 +46,10 @@ jobs:
         run: uv run ruff check
         working-directory: backend
 
+      - name: Format check backend
+        run: uv run ruff format --check
+        working-directory: backend
+
       - name: Typecheck backend
         run: uv run ty check
         working-directory: backend

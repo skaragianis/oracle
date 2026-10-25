@@ -24,7 +24,7 @@ Each app's CLAUDE.md is authoritative for its own commands, architecture, and go
 make up      # build image + run the whole app at http://localhost:8080 (docker)
 make down    # stop/remove the container (data volume kept)
 make test    # backend pytest + frontend vitest
-make lint    # backend ruff + ty, frontend vue-tsc
+make lint    # backend ruff (lint + format check) + ty, frontend vue-tsc
 ```
 
 Per-component targets exist (`cli-`, `server-`, `backend-`, `frontend-`). Dev = `make server-run` + `make frontend-run` in two terminals; docker is for running the app, not developing it.

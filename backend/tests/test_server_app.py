@@ -662,8 +662,7 @@ def test_reprocess_pending_in_background_warns_about_a_missing_upload(
         if record.levelno == logging.WARNING
     ]
     assert any(
-        f"document {doc_id}" in message and "missing" in message
-        for message in warnings
+        f"document {doc_id}" in message and "missing" in message for message in warnings
     )
 
 

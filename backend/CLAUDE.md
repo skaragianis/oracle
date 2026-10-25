@@ -17,7 +17,7 @@ make setup                       # install deps per uv.lock (also frontend + Pla
 make backend-test                # full suite (CLI, server, common)
 make cli-test                    # CLI + common only
 make server-test                 # server + common only
-make backend-lint                # ruff check + ty check
+make backend-lint                # ruff check + ruff format --check + ty check
 make server-run                  # dev server on 127.0.0.1:8000
 make cli-run ARGS="--help"       # run the CLI
 ```

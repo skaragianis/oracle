@@ -44,8 +44,8 @@ server-test: ## Run the API server and common tests
 backend-test: ## Run the full backend test suite (CLI, server, common)
 	cd backend && uv run pytest
 
-backend-lint: ## Lint and typecheck the backend (ruff + ty)
-	cd backend && uv run ruff check && uv run ty check
+backend-lint: ## Lint, format-check and typecheck the backend (ruff + ty)
+	cd backend && uv run ruff check && uv run ruff format --check && uv run ty check
 
 backend-audit: ## Check backend dependencies for known vulnerabilities (uv audit)
 	cd backend && uv audit

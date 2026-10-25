@@ -70,9 +70,7 @@ def _shutdown_gracefully(
     logger.info("Shutting down, waiting up to %ss for in-flight ingest", timeout)
     acquired = _ingest_slot.acquire(timeout=timeout)
     if not acquired:
-        logger.warning(
-            "Ingest still running after %ss; checkpointing anyway", timeout
-        )
+        logger.warning("Ingest still running after %ss; checkpointing anyway", timeout)
     try:
         with closing(connection_factory()) as conn:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

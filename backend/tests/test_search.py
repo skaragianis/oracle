@@ -556,8 +556,7 @@ def test_search_vectors_excludes_non_ready_documents_even_when_requested_explici
     )
 
     assert (
-        search_vectors(conn, vector_index, "fox", document_ids=[non_ready_doc_id])
-        == []
+        search_vectors(conn, vector_index, "fox", document_ids=[non_ready_doc_id]) == []
     )
 
 
