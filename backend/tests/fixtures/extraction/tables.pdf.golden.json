@@ -1,0 +1,17 @@
+{
+  "chunk_count": 1,
+  "chunks": [
+    {
+      "char_end": 185,
+      "char_start": 0,
+      "page_number": 1,
+      "paragraph_end": 6,
+      "paragraph_start": 0,
+      "seq": 0,
+      "text": "Quarterly stock summary\nItem Region Units Price\nLantern North 120 4.50\nRope South 75 2.25\nAnchor East 18 61.00\nTarpaulin West 42 12.80\nTotals are reconciled at the end of each quarter.\n",
+      "token_count": 61
+    }
+  ],
+  "fixture": "tables.pdf",
+  "warnings": []
+}

@@ -1,0 +1,25 @@
+{
+  "chunk_count": 1,
+  "chunks": [
+    {
+      "char_end": 381,
+      "char_start": 0,
+      "page_number": 1,
+      "paragraph_end": 2,
+      "paragraph_start": 0,
+      "seq": 0,
+      "text": "Malformed fixture page 1. The cross reference table of this file is broken so MuPDF has to rebuild it by scanning the objects.\nMalformed fixture page 2. The cross reference table of this file is broken so MuPDF has to rebuild it by scanning the objects.\nMalformed fixture page 3. The cross reference table of this file is broken so MuPDF has to rebuild it by scanning the objects.\n",
+      "token_count": 81
+    }
+  ],
+  "fixture": "malformed.pdf",
+  "warnings": [
+    "MuPDF recovered from a malformed PDF (doc 1): syntax error: expected 'obj' keyword (7 1 ?)",
+    "MuPDF recovered from a malformed PDF (doc 1): trying to repair broken xref",
+    "MuPDF recovered from a malformed PDF (doc 1): repairing PDF document",
+    "MuPDF recovered from a malformed PDF (doc 1 page 2): syntax error: unknown keyword: 'QQ'",
+    "MuPDF recovered from a malformed PDF (doc 1 page 2): syntax error: unknown keyword: 'bogus'",
+    "MuPDF recovered from a malformed PDF (doc 1 page 2): syntax error: array not closed before end of file",
+    "MuPDF recovered from a malformed PDF (doc 1 page 2): encountered syntax errors; page may not be correct"
+  ]
+}

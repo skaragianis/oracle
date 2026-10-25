@@ -1,0 +1,17 @@
+{
+  "chunk_count": 1,
+  "chunks": [
+    {
+      "char_end": 246,
+      "char_start": 0,
+      "page_number": null,
+      "paragraph_end": 10,
+      "paragraph_start": 0,
+      "seq": 0,
+      "text": "Equipment register introduction paragraph.\nOuter header left\nOuter header right\nOuter body left\nCell text before the nested table\nInner alpha\nInner beta\nInner gamma\nInner delta\nCell text after the nested table\nClosing paragraph after the tables.\n",
+      "token_count": 49
+    }
+  ],
+  "fixture": "nested_table.docx",
+  "warnings": []
+}
