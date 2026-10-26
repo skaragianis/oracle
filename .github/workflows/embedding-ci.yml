@@ -23,6 +23,9 @@ on:
       - 'backend/tests/fixtures/embeddings/**'
       - '.github/workflows/embedding-ci.yml'
 
+permissions:
+  contents: read
+
 jobs:
   embedding-stability:
     runs-on: ubuntu-latest

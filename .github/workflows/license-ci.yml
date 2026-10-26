@@ -17,6 +17,9 @@ on:
       - 'Makefile'
       - '.github/workflows/license-ci.yml'
 
+permissions:
+  contents: read
+
 jobs:
   licenses:
     runs-on: ubuntu-latest

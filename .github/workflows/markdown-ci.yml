@@ -15,6 +15,9 @@ on:
       - 'Makefile'
       - '.github/workflows/markdown-ci.yml'
 
+permissions:
+  contents: read
+
 jobs:
   markdown:
     runs-on: ubuntu-latest

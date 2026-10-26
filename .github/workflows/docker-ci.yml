@@ -21,6 +21,9 @@ on:
       - 'Makefile'
       - '.github/workflows/docker-ci.yml'
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest

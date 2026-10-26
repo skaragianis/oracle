@@ -13,6 +13,9 @@ on:
       - 'frontend/**'
       - '.github/workflows/e2e-ci.yml'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
