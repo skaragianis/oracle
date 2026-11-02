@@ -1,0 +1,7 @@
+# GHSA-g3hv-75wg-m249 and GHSA-3g3m-2fjr-6pw4 are reached only via dev-only @vue/test-utils > js-beautify.
+# Forced past the declared ranges: only js-beautify's CLI loads glob/editorconfig, and nothing here runs it.
+# Remove once js-beautify allows glob >=14.0.2 and editorconfig allows minimatch >=11.0.1: delete this block,
+# regenerate the lockfile, and drop this file from the Dockerfile COPY.
+overrides:
+  glob: '>=14.0.2'
+  minimatch: '>=11.0.1'
